@@ -1,32 +1,41 @@
 package osfp
 
+// This is the core Job interface used by the Worker internals.
+//
+// # Events
+//
+// The "watchEvents" value represents the events we want to watch.
+// The "currentEvents" value represents the events that were found.
+//
+// Supported Events:
+//   - osfp.CAN_READ, denotes a read poll
+//   - osfp.CAN_WRITE, denotes a write poll
+//
+// Both event types can be put togeather:
+//
+//	// Poll reads
+//	watchEvents :=osfp.CAN_READ
+//
+//	// Poll write
+//	watchEvents :=osfp.CAN_WRITE
+//
+//	// Poll both read and write
+//	watchEvents :=osfp.CAN_WRITE|osfp.CAN_READ
+//
+// # Timeouts
+//
+// The "futureTimeOut" is expected to be unix timestamp in milliseconds that represents when the "watchEvents"
+// polling window has expired. If "futureTimeOut" is less than or equal to 0, then the polling window will never expire.
 type Job interface {
-	// Expected to return the required Epoll flags.
-	// When the return value is 0, the job will not be
-	// added to the pool.
-	GetFlags() int
 
-	// Processes the last epoll flags and returns the next flags to use.
-	// If the nextFlags value is 0, then the job will not be re-added.
-	// The "futureTimeout" is expected unix stamp that represents when this job expires.
-	// If "futureTimeout" is set to 0, then this job never expires.
-	// If the timeout is greater than 0 but less than now.. then the object will be sutdown
-	// with an os.ErrDeadlineExceeded error.
-	ProcessFlags(flags int16, now int64) (nextFlags int16, nextFutureTimeOut int64)
-
-	// notes that this job needs to shutdown.
-	Shutdown(error)
+	// Processes the last epoll events and returns the next flags to use.
+	ProcessEvents(currentEvents int16, now int64) (watchEevents int16, futureTimeOut int64)
 
 	// Sets the current Worker. This method is called when a Job is added to a Worker in the pool.
-	// The "futureTimeout" is expected unix stamp that represents when this job expires.
-	// If "futureTimeout" is set to 0, then this job never expires.
-	// If the timeout is greater than 0 but less than now.. then the object will be sutdown
-	// with an os.ErrDeadlineExceeded error.
-	// The "fd" value is expected to be the same as the value from os.File.Fd().  The Fd value
-	// represents the unix file descriptor.
-	SetPool(worker *Worker) (futureTimeout int64, fd int)
+	SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeout int64, fd int)
 
 	// This is called when Job is being removed from the pool.
 	// Make sure to remove the refernce of the current worker when implementing this method.
-	ClearPool()
+	// The error value is nil if the "watchEvents" value is 0 and no errors were found.
+	ClearPool(error)
 }

@@ -13,7 +13,7 @@ import (
 // https://man7.org/linux/man-pages/man2/poll.2.html
 const IN_ERROR = unix.POLLERR | // Errors
 	unix.POLLHUP | // Other end has disconnected
-	unix.POLLNVAL // Other end has closed
+	unix.POLLNVAL | unix.POLLRDHUP // Other end has closed
 func main() {
 	//err := unix.SetNonblock(int(os.Stdin.Fd()), true)
 	//if err != nil {
@@ -34,6 +34,7 @@ func main() {
 		Events: unix.POLLIN,
 	}
 	count := 0
+	num := 0
 	readTotal := 0
 	writeTotal := 0
 
@@ -41,7 +42,7 @@ func main() {
 	buff := make([]byte, 1)
 	for {
 		//n, e := unix.Poll(*poll, 0)
-		n, e := unix.Poll(poll, 1000)
+		n, e := unix.Poll(poll, 0)
 		if e != nil {
 			fmt.Printf("Poll Error: %s\n", e)
 			time.Sleep(500)
@@ -51,9 +52,10 @@ func main() {
 		if n == 0 {
 
 			count += 1
+			num += 1000
 			fmt.Printf("No Read\n")
 			//size, e := w.Write([]byte(fmt.Sprintf("%d", count)))
-			size, e := unix.Write(int(w.Fd()), []byte(fmt.Sprintf("%d", count)))
+			size, e := unix.Write(int(w.Fd()), []byte(fmt.Sprintf("%d", num)))
 			if e != nil {
 
 				fmt.Printf("Write Error: %s\n", e)
@@ -77,11 +79,24 @@ func main() {
 					return
 				}
 				fmt.Printf("Got: [%s]\n", string(buff[:n]))
+				if fdin.Revents&IN_ERROR != 0 {
+					fmt.Printf("Error detected durring read\n")
+				}
 				readTotal += n
 				fdin.Revents = 0
 			} else if fdin.Revents&IN_ERROR != 0 {
-				fdin.Revents = 0
 				fmt.Printf("Bytes written: %d, bytes read: %d\n", readTotal, writeTotal)
+				switch {
+				case fdin.Revents&unix.POLLERR != 0:
+					fmt.Printf("Got an error\n")
+				case fdin.Revents&unix.POLLHUP != 0:
+					fmt.Printf("Got an error: Closed local hup\n")
+				case fdin.Revents&unix.POLLRDHUP != 0:
+					fmt.Printf("Got an error: Closed remote hup\n")
+				case fdin.Revents&unix.POLLNVAL != 0:
+					fmt.Printf("Got an error: Connection not valid\n")
+				}
+				fdin.Revents = 0
 				fmt.Printf("We are done\n")
 				return
 			}

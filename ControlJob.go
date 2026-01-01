@@ -14,10 +14,6 @@ func NewControlJob(worker *Worker) *ControlJob {
 	}
 }
 
-func (s *ControlJob) GetFlags() int {
-	return CAN_READ
-}
-
 func (s *ControlJob) ProcessFlags(flags int16, now int64) (nextFlags int16, nextFutureTimeOut int64) {
 	_, e := s.worker.file.Read(s.buffer)
 	if e != nil {
