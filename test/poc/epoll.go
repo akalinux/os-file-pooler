@@ -5,6 +5,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
+
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -13,75 +16,67 @@ const IN_ERROR = unix.POLLERR | // Errors
 	unix.POLLHUP | // Other end has disconnected
 	unix.POLLNVAL // Other end has closed
 func main() {
-	fmt.Printf("%v\n", os.Stdin.Fd())
+	//err := unix.SetNonblock(int(os.Stdin.Fd()), true)
+	//if err != nil {
+	//	panic(err)
+	//}
+	r, w, e := os.Pipe()
+
+	if e != nil {
+		panic(e)
+	}
+	e = unix.SetNonblock(int(r.Fd()), true)
+	if e != nil {
+		panic(e)
+	}
+
 	fdin := unix.PollFd{
-		Fd: int32(os.Stdin.Fd()),
-		Events: unix.POLLIN | // Can Read
-			IN_ERROR,
+		Fd:     int32(r.Fd()),
+		Events: unix.POLLIN | IN_ERROR,
 	}
-	fout := unix.PollFd{
-		Fd:      int32(os.Stdout.Fd()),
-		Revents: 0,
-		Events:  unix.POLLOUT | IN_ERROR, // Can Write
-	}
+	count := 0
+	readTotal := 0
+	writeTotal := 0
 
 	poll := &[]unix.PollFd{fdin}
-	backlog := make([]byte, 0xffff)
-	buff := make([]byte, 0xffff)
-
-	/*
-	* As a note, we can close this loop by adding a file handle that when closed shuts down the loop.
-	* You can also write to that handle, when you do it signals new elements need to be added to the pool!
-	 */
 	for {
-		fmt.Printf("Job size: %d\n", len(*poll))
-		if len(*poll) == 0 {
-			break
+		//n, e := unix.Poll(*poll, 0)
+		n, e := unix.Poll(*poll, 0)
+		if e != nil {
+			fmt.Printf("Poll Error: %s\n", e)
+			time.Sleep(1000000)
+			continue
+			//return
 		}
-		totalEvents, err := unix.Poll(*poll, 20)
-		if err != nil {
-			panic(err)
-		}
-		if totalEvents == 0 {
+		if n == 0 {
+			count += 1
+			fmt.Printf("No Read\n")
+			//size, e := w.Write([]byte(fmt.Sprintf("%d", count)))
+			size, e := syscall.Write(int(w.Fd()), []byte(fmt.Sprintf("%d", count)))
+			if e != nil {
+
+				fmt.Printf("Write Error: %s\n", e)
+				fmt.Printf("Bytes written: %d, bytes read: %d\n", readTotal, writeTotal)
+				return
+			}
+			writeTotal += size
+			fmt.Printf("Wrote %d, sent: %d\n", count, size)
 			continue
 		}
-		next := make([]unix.PollFd, 0, len(*poll))
-		for _, h := range *poll {
-			fmt.Printf("Got Event For: %d\n", h.Fd)
-			if h.Fd == 0 {
-				if h.Revents&unix.POLLIN != 0 {
-					size, _ := unix.Read(int(h.Fd), buff)
-					backlog = append(backlog, buff[:size]...)
-					fmt.Printf("Got bytes: %d\n", size)
-					buff = buff[:0]
-					if IN_ERROR&h.Revents == 0 {
-
-						next = append(next, h)
-					} else {
-						fmt.Println("Finished STDIN")
-					}
-				} else if IN_ERROR&h.Revents != 0 {
-					fmt.Printf("STDIN IS DONE\n")
-				}
-			} else {
-				// h.Fd==1 in this case!
-				before := len(backlog)
-				size, _ := unix.Write(int(h.Fd), backlog)
-				backlog = backlog[size:]
-				fmt.Printf("\nWrote: %d bytes, backlog is now: %d, backlog was %d\n", size, len(backlog), before)
-			}
-			h.Events = 0
+		if fdin.Revents&IN_ERROR != 0 {
+			fmt.Printf("We are done")
+			return
 		}
-		if len(backlog) != 0 {
-			fmt.Printf("polling stdout\n")
-			next = append(next, fout)
+		buff := make([]byte, 2)
+		n, e = syscall.Read(int(fdin.Fd), buff)
+		if e != nil {
+			fmt.Printf("Error Reading: %s\n", e)
+			fmt.Printf("Bytes written: %d, bytes read: %d\n", readTotal, writeTotal)
+			return
 		}
-		if len(next) == 0 {
-			fmt.Printf("No More work to do!")
-			break
-		}
-		poll = &next
-
+		fmt.Printf("Got: [%s]\n", string(buff))
+		readTotal += n
+		fdin.Events = 0
 	}
 
 }
