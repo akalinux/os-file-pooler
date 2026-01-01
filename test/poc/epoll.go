@@ -7,11 +7,10 @@ import (
 	"os"
 	"time"
 
-	"syscall"
-
 	"golang.org/x/sys/unix"
 )
 
+// https://man7.org/linux/man-pages/man2/poll.2.html
 const IN_ERROR = unix.POLLERR | // Errors
 	unix.POLLHUP | // Other end has disconnected
 	unix.POLLNVAL // Other end has closed
@@ -25,34 +24,36 @@ func main() {
 	if e != nil {
 		panic(e)
 	}
-	e = unix.SetNonblock(int(r.Fd()), true)
+	e = unix.SetNonblock(int(w.Fd()), true)
 	if e != nil {
 		panic(e)
 	}
 
 	fdin := unix.PollFd{
 		Fd:     int32(r.Fd()),
-		Events: unix.POLLIN | IN_ERROR,
+		Events: unix.POLLIN,
 	}
 	count := 0
 	readTotal := 0
 	writeTotal := 0
 
-	poll := &[]unix.PollFd{fdin}
+	poll := []unix.PollFd{fdin}
+	buff := make([]byte, 1)
 	for {
 		//n, e := unix.Poll(*poll, 0)
-		n, e := unix.Poll(*poll, 0)
+		n, e := unix.Poll(poll, 1000)
 		if e != nil {
 			fmt.Printf("Poll Error: %s\n", e)
-			time.Sleep(1000000)
+			time.Sleep(500)
 			continue
 			//return
 		}
 		if n == 0 {
+
 			count += 1
 			fmt.Printf("No Read\n")
 			//size, e := w.Write([]byte(fmt.Sprintf("%d", count)))
-			size, e := syscall.Write(int(w.Fd()), []byte(fmt.Sprintf("%d", count)))
+			size, e := unix.Write(int(w.Fd()), []byte(fmt.Sprintf("%d", count)))
 			if e != nil {
 
 				fmt.Printf("Write Error: %s\n", e)
@@ -61,22 +62,34 @@ func main() {
 			}
 			writeTotal += size
 			fmt.Printf("Wrote %d, sent: %d\n", count, size)
-			continue
+		} else {
+			fdin := poll[0]
+			if fdin.Revents == 0 {
+				fmt.Printf("Got nothing\n")
+			}
+			if fdin.Revents&unix.POLLIN != 0 {
+				buff = buff[:0]
+				n, e = r.Read(buff[:cap(buff)])
+				//n, e = unix.Read(int(fdin.Fd), buff[:cap(buff)])
+				if e != nil {
+					fmt.Printf("Error Reading: %s\n", e)
+					fmt.Printf("Bytes written: %d, bytes read: %d\n", readTotal, writeTotal)
+					return
+				}
+				fmt.Printf("Got: [%s]\n", string(buff[:n]))
+				readTotal += n
+				fdin.Revents = 0
+			} else if fdin.Revents&IN_ERROR != 0 {
+				fdin.Revents = 0
+				fmt.Printf("Bytes written: %d, bytes read: %d\n", readTotal, writeTotal)
+				fmt.Printf("We are done\n")
+				return
+			}
+
+			if count > 9 {
+				w.Close()
+			}
 		}
-		if fdin.Revents&IN_ERROR != 0 {
-			fmt.Printf("We are done")
-			return
-		}
-		buff := make([]byte, 2)
-		n, e = syscall.Read(int(fdin.Fd), buff)
-		if e != nil {
-			fmt.Printf("Error Reading: %s\n", e)
-			fmt.Printf("Bytes written: %d, bytes read: %d\n", readTotal, writeTotal)
-			return
-		}
-		fmt.Printf("Got: [%s]\n", string(buff))
-		readTotal += n
-		fdin.Events = 0
 	}
 
 }

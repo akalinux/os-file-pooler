@@ -1,27 +1,29 @@
 package osfp
 
 type ControlJob struct {
-	fd  int
-	que chan Job
+	worker *Worker
+	que    chan Job
+	buffer []byte
 }
 
-func NewControlJob(pool *Worker) *ControlJob {
+func NewControlJob(worker *Worker) *ControlJob {
 	return &ControlJob{
-		fd:  int(pool.file.Fd()),
-		que: make(chan Job),
+		worker: worker,
+		que:    make(chan Job),
+		buffer: []byte{0},
 	}
 }
 
 func (s *ControlJob) GetFlags() int {
-	return HALT_POLLING | CAN_READ
+	return CAN_READ
 }
 
 func (s *ControlJob) ProcessFlags(flags int16, now int64) (nextFlags int16, nextFutureTimeOut int64) {
-	if nextFlags&HALT_POLLING != 0 {
-
+	_, e := s.worker.file.Read(s.buffer)
+	if e != nil {
 		return 0, 0
 	}
-	return 0, 0
+	return CAN_READ, 0
 }
 
 // notes that this job needs to shutdown.
@@ -33,4 +35,6 @@ func (s *ControlJob) SetPool(worker *Worker) (futureTimeout int64, fd int) {
 	return 0, 0
 }
 
-func (s *ControlJob) ClearPool()
+func (s *ControlJob) ClearPool() {
+
+}

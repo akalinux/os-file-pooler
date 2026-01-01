@@ -9,13 +9,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// A conglomeration of all possible poller states that represent a disconnect state.
-// Take a look t the unix poller constants for more info: unix.POLLER*.
-const HALT_POLLING = unix.POLLERR | // Errors
-	unix.POLLHUP | // Local end has disconnected
-	unix.POLLRDHUP | // Remote side disconnected
-	unix.POLLNVAL // Not a valid connection
+var ERR_SHUTDOWN = errors.New("Thread pool Shutdown")
 
+// https://man7.org/linux/man-pages/man2/poll.2.html
+const IN_ERROR = unix.POLLERR | // Errors
+	unix.POLLHUP | // Other end has disconnected
+	unix.POLLNVAL // Other end has closed
 // Checks if an fd can read
 // Take a look t the unix poller constants for more info: unix.POLLER*.
 const CAN_READ = unix.POLLIN
@@ -50,8 +49,8 @@ func NewWorker(que chan Job, throttle chan any, file *os.File, limit int) *Worke
 
 func (s *Worker) Wakeup() {
 	s.locker.Lock()
-	s.file.Write([]byte{0})
 	defer s.locker.Unlock()
+	unix.Write(int(s.file.Fd()), []byte{0})
 }
 
 func (s *Worker) Run() {
@@ -110,9 +109,11 @@ func (s *Worker) WalkJobs(cs, ns byte, active int, now, sleep int64) {
 	job := s.jobs[cs][0]
 	fd := s.fds[cs][0]
 	var err error
+	var nextTs int64 = -1
 	if fd.Revents != 0 {
 		// Process our control job first
-		flags, _ := job.ProcessFlags(fd.Revents, now)
+		flags, sleep := job.ProcessFlags(fd.Revents, now)
+		nextTs = sleep
 		if flags == 0 {
 			// if we get here the fd is closed!
 			err = errors.New("Shutdown in progress!")
@@ -125,13 +126,13 @@ func (s *Worker) WalkJobs(cs, ns byte, active int, now, sleep int64) {
 			s.jobs[cs][i].ClearPool()
 		}
 	} else {
-		s.processNextSet(cs, ns, now)
+		s.processNextSet(cs, ns, now, nextTs)
 	}
 
 }
 
-func (s *Worker) processNextSet(cs, ns byte, now int64) {
-	var nextTs int64 = -1
+func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
+	var nextTs int64 = StarterNextTs
 	for i := 1; i < len(s.jobs[cs]); i++ {
 		fd := s.fds[cs][i]
 		job := s.jobs[cs][i]

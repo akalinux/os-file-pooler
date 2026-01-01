@@ -4,9 +4,6 @@ import (
 	"errors"
 	"os"
 	"sync"
-	// may be able to do this in the fute
-	//"syscall"
-	//"golang.org/x/sys/unix"
 )
 
 type Pool struct {
@@ -76,6 +73,7 @@ func NewPool(threads int, limit int) (*Pool, error) {
 		throttle: throttle,
 		que:      que,
 	}
+
 	for i := range threads {
 		r, w, e := os.Pipe()
 		if e != nil {
