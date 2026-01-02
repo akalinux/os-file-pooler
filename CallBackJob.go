@@ -6,17 +6,35 @@ import (
 )
 
 type CallBackJob struct {
-	Timeout     int64
-	Events      int16
-	lastTimeout int64
-	OnCanRead   func()
-	OnCanWrite  func()
-	OnClear     func(error)
-	Worker      *Worker
-	Fd          int
-	lock        sync.RWMutex
+	Timeout int64
+	Events  int16
+	OnEvent func(curentEvents int16, err error)
+	Worker  *Worker
+	Fd      uintptr
+	lock    sync.RWMutex
 }
 
+func NewJobFromFdT(fd uintptr, watchEvents int16, timeout int64, cb func(int16, error)) (job *CallBackJob) {
+	job = &CallBackJob{
+		OnEvent: cb,
+		Timeout: timeout,
+		Fd:      fd,
+		Events:  watchEvents,
+	}
+	return
+}
+
+func NewJobFromOsFileT(f os.File, watchEvents int16, timeout int64, cb func(int16, error)) (job *CallBackJob) {
+	job = &CallBackJob{
+		OnEvent: cb,
+		Timeout: timeout,
+		Fd:      f.Fd(),
+		Events:  watchEvents,
+	}
+	return
+}
+
+// Updates the current timeout.
 func (s *CallBackJob) SetTimeout(t int64) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -30,12 +48,10 @@ func (s *CallBackJob) SetTimeout(t int64) {
 func (s *CallBackJob) ProcessEvents(currentEvents int16, now int64) (watchEevents int16, futureTimeOut int64, EventError error) {
 
 	s.lock.RLock()
-	defer s.lock.Unlock()
+	defer s.lock.RUnlock()
 	switch {
-	case s.Events&CAN_READ != 0 && watchEevents&CAN_READ != 0 && s.OnCanRead != nil:
-		s.OnCanRead()
-	case s.Events&CAN_WRITE != 0 && watchEevents&CAN_WRITE != 0 && s.OnCanWrite != nil:
-		s.OnCanRead()
+	case currentEvents&CAN_RW != 0 && s.OnEvent != nil:
+		s.OnEvent(currentEvents, nil)
 	case s.Timeout != 0:
 		futureTimeOut = now + s.Timeout
 	}
@@ -48,7 +64,7 @@ func (s *CallBackJob) ProcessEvents(currentEvents int16, now int64) (watchEevent
 // If the Job has timed out TimeOutError should be set to os.ErrDeadlineExceeded.
 func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (futureTimeOut int64, TimeOutError error) {
 	s.lock.RLock()
-	defer s.lock.Unlock()
+	defer s.lock.RUnlock()
 	if s.Timeout == 0 {
 		return
 	}
@@ -62,11 +78,11 @@ func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (futureTimeOut 
 }
 
 // Sets the current Worker. This method is called when a Job is added to a Worker in the pool.
-func (s *CallBackJob) SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int) {
-	s.lock.RLock()
+func (s *CallBackJob) SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd uintptr) {
+	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.Timeout != 0 {
-		futureTimeOut = now + s.lastTimeout
+		futureTimeOut = now + s.Timeout
 	}
 	watchEevents = s.Events
 	fd = s.Fd
@@ -78,8 +94,10 @@ func (s *CallBackJob) SetPool(worker *Worker, now int64) (watchEevents int16, fu
 // Make sure to remove the refernce of the current worker when implementing this method.
 // The error value is nil if the "watchEvents" value is 0 and no errors were found.
 func (s *CallBackJob) ClearPool(e error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	s.Worker = nil
-	if s.OnClear != nil {
-		s.OnClear(e)
+	if s.OnEvent != nil {
+		s.OnEvent(0, e)
 	}
 }

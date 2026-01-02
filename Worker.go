@@ -31,6 +31,9 @@ const (
 	// checks if an fd can write
 	// Take a look t the unix poller constants for more info: unix.POLLER*.
 	CAN_WRITE = unix.POLLOUT
+
+	// watch both read and write events
+	CAN_RW = CAN_WRITE | CAN_READ
 )
 
 type Worker struct {
