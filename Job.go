@@ -29,10 +29,14 @@ package osfp
 type Job interface {
 
 	// Processes the last epoll events and returns the next flags to use.
-	ProcessEvents(currentEvents int16, now int64) (watchEevents int16, futureTimeOut int64)
+	ProcessEvents(currentEvents int16, now int64) (watchEevents int16, futureTimeOut int64, EventError error)
+
+	// Called to validate the "lastTimeout", should return a futureTimeOut or 0 if there is no timeout.
+	// If the Job has timed out TimeOutError should be set to os.ErrDeadlineExceeded.
+	CheckTimeOut(now, lastTimeout int64) (futureTimeOut int64, TimeOutError error)
 
 	// Sets the current Worker. This method is called when a Job is added to a Worker in the pool.
-	SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeout int64, fd int)
+	SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int)
 
 	// This is called when Job is being removed from the pool.
 	// Make sure to remove the refernce of the current worker when implementing this method.

@@ -45,9 +45,15 @@ func (s *Pool) Close() error {
 	return nil
 }
 
+const (
+	DEFAULT_POOL_THREADS   = 10
+	DEFAULT_POOL_HANDLES   = 1000
+	DEFAULT_WORKER_HANDLES = DEFAULT_POOL_HANDLES / DEFAULT_POOL_THREADS
+)
+
 // Creates a new Pool instance with the default number of threads and limits.
 func NewPoolDefaults() (*Pool, error) {
-	return NewPool(10, 1000)
+	return NewPool(DEFAULT_POOL_THREADS, DEFAULT_POOL_HANDLES)
 }
 
 func NewPool(threads int, limit int) (*Pool, error) {
@@ -80,7 +86,7 @@ func NewPool(threads int, limit int) (*Pool, error) {
 			res.Close()
 			return nil, e
 		}
-		t := NewWorker(que, throttle, r, memberLimit)
+		t := NewWorker(que, throttle, r, w, memberLimit)
 		go t.Run()
 		workers[i] = t
 		sigs[i] = w
