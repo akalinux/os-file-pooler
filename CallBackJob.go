@@ -24,14 +24,8 @@ func NewJobFromFdT(fd uintptr, watchEvents int16, timeout int64, cb func(int16, 
 	return
 }
 
-func NewJobFromOsFileT(f os.File, watchEvents int16, timeout int64, cb func(int16, error)) (job *CallBackJob) {
-	job = &CallBackJob{
-		OnEvent: cb,
-		Timeout: timeout,
-		Fd:      f.Fd(),
-		Events:  watchEvents,
-	}
-	return
+func NewJobFromOsFileT(f os.File, watchEvents int16, timeout int64, cb func(int16, error)) *CallBackJob {
+	return NewJobFromFdT(f.Fd(), watchEvents, timeout, cb)
 }
 
 // Updates the current timeout.
@@ -94,8 +88,7 @@ func (s *CallBackJob) SetPool(worker *Worker, now int64) (watchEevents int16, fu
 // Make sure to remove the refernce of the current worker when implementing this method.
 // The error value is nil if the "watchEvents" value is 0 and no errors were found.
 func (s *CallBackJob) ClearPool(e error) {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
+
 	s.Worker = nil
 	if s.OnEvent != nil {
 		s.OnEvent(0, e)
