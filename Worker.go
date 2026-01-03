@@ -34,6 +34,9 @@ const (
 
 	// watch both read and write events
 	CAN_RW = int16(CAN_WRITE | CAN_READ)
+
+	// Tell the Pool to release this element
+	CAN_END = int16(0)
 )
 
 type Worker struct {
@@ -57,7 +60,7 @@ func NewLocalWorker(limit int) (worker *Worker, osErr error) {
 		return nil, e
 	}
 	worker = NewWorker(
-		make(chan Job),
+		make(chan Job, 1),
 		make(chan any, limit),
 		r, w,
 		limit,
@@ -121,6 +124,18 @@ func (s *Worker) Run() {
 	}
 }
 
+func (s *Worker) SingleRun() error {
+	currentState, nextState, now, sleep := s.NextState()
+
+	active, e := s.DoPoll(currentState, sleep)
+	if e != nil {
+		return e
+	}
+	s.WalkJobs(currentState, nextState, now, active)
+
+	return nil
+}
+
 func (s *Worker) NextState() (currentState byte, nextState byte, now int64, sleep int64) {
 	now = time.Now().UnixMilli()
 	sleep = -1
@@ -134,19 +149,14 @@ func (s *Worker) NextState() (currentState byte, nextState byte, now int64, slee
 	// alternate 0 1 and back again
 	s.state = (s.state + 1) & 1
 	nextState = s.state
-	currentFd := s.fds[currentState]
-	nextFd := s.fds[nextState]
-	currentJobs := s.jobs[currentState]
-	nextJobs := s.jobs[nextState]
 
-	// swap current and next
-	s.fds[nextState] = currentFd
-	s.jobs[nextState] = currentJobs
-	// reset the next objects to the defaults
-	*nextJobs = (*nextJobs)[:1]
-	*nextFd = (*nextFd)[:1]
-	s.fds[currentState] = nextFd
-	s.jobs[currentState] = nextJobs
+	nextFd := *s.fds[nextState]
+	nextJobs := *s.jobs[nextState]
+
+	nextFd = nextFd[:1]
+	nextJobs = nextJobs[:1]
+	s.fds[nextState] = &nextFd
+	s.jobs[nextState] = &nextJobs
 
 	return
 }
@@ -191,10 +201,16 @@ func (s *Worker) clearJob(job Job, e error) {
 
 func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
 	var nextTs int64 = StarterNextTs
-	for i := 1; i < len(*s.jobs[cs]); i++ {
-		fd := (*s.fds[cs])[i]
-		job := (*s.jobs[cs])[i]
-		events := fd.Events
+	currentFds := (s.fds[cs])
+	nextFds := (s.fds[ns])
+	currentJobs := (s.jobs[cs])
+	nextJobs := (s.jobs[ns])
+
+	loopSize := len(*currentJobs)
+	for i := 1; i < loopSize; i++ {
+		fd := (*currentFds)[i]
+		job := (*currentJobs)[i]
+		events := fd.Revents
 		check := events & fd.Events
 		var flags int16
 		var futureTs int64
@@ -230,8 +246,8 @@ func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
 		}
 		fd.Events = flags
 		fd.Revents = 0
-		*s.fds[ns] = append(*s.fds[ns], fd)
-		*s.jobs[ns] = append(*s.jobs[ns], job)
+		*nextFds = append(*nextFds, fd)
+		*nextJobs = append(*nextJobs, job)
 		if futureTs > 0 {
 			if nextTs > 0 {
 				if nextTs > futureTs {

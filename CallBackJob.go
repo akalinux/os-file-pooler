@@ -8,23 +8,24 @@ import (
 type CallBackJob struct {
 	Timeout int64
 	Events  int16
-	OnEvent func(curentEvents int16, err error)
+	OnEvent func(config *OnCallBackConfig, Err error)
 	Worker  *Worker
 	Fd      int32
 	lock    sync.RWMutex
 }
 
-func NewJobFromFdT(fd int32, watchEvents int16, timeout int64, cb func(int16, error)) (job *CallBackJob) {
+func NewJobFromFdT(fd int32, watchEvents int16, timeout int64, cb func(*OnCallBackConfig, error)) (job *CallBackJob) {
 	job = &CallBackJob{
 		OnEvent: cb,
 		Timeout: timeout,
 		Fd:      fd,
 		Events:  watchEvents,
 	}
+
 	return
 }
 
-func NewJobFromOsFileT(f os.File, watchEvents int16, timeout int64, cb func(int16, error)) *CallBackJob {
+func NewJobFromOsFileT(f os.File, watchEvents int16, timeout int64, cb func(*OnCallBackConfig, error)) *CallBackJob {
 	return NewJobFromFdT(int32(f.Fd()), watchEvents, timeout, cb)
 }
 
@@ -45,7 +46,15 @@ func (s *CallBackJob) ProcessEvents(currentEvents int16, now int64) (watchEevent
 	defer s.lock.RUnlock()
 	switch {
 	case currentEvents&CAN_RW != 0 && s.OnEvent != nil:
-		s.OnEvent(currentEvents, nil)
+		config := &OnCallBackConfig{
+			Timeout: s.Timeout,
+			Events:  s.Events,
+		}
+
+		s.OnEvent(config, nil)
+		s.Events = config.Events
+		s.Timeout = config.Timeout
+
 	case s.Timeout != 0:
 		futureTimeOut = now + s.Timeout
 	}
@@ -91,6 +100,6 @@ func (s *CallBackJob) ClearPool(e error) {
 
 	s.Worker = nil
 	if s.OnEvent != nil {
-		s.OnEvent(0, e)
+		s.OnEvent(nil, e)
 	}
 }

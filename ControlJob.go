@@ -16,19 +16,23 @@ func (s *ControlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents
 		futureTimeOut = 0
 		EventError = ERR_SHUTDOWN
 		worker.write.Close()
+		worker.closed = true
 		return
 	}
-	watchEevents = CAN_READ
 
 	que := s.worker.que
 	_, EventError = s.worker.read.Read(s.buffer)
 	if EventError != nil {
-		EventError = errors.Join(ERR_SHUTDOWN, EventError)
+		EventError = ERR_SHUTDOWN
 		worker.write.Close()
+		worker.closed = true
+		return
 	}
+	// only set watch events, once we pass our error checks
+	watchEevents = CAN_READ
 	// in the worker our next is current and our current is next
 	// so we need to convert state in orer
-	state := (s.worker.state + 1) & 1
+	state := s.worker.state
 	fds := worker.fds[state]
 	jobs := worker.jobs[state]
 
@@ -37,6 +41,7 @@ func (s *ControlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents
 		case job := <-que:
 			events, t, fd := job.SetPool(worker, now)
 			if events == 0 {
+
 				job.ClearPool(ERR_NO_EVENTS)
 				continue
 			}
