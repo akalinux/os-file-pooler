@@ -10,11 +10,11 @@ type CallBackJob struct {
 	Events  int16
 	OnEvent func(curentEvents int16, err error)
 	Worker  *Worker
-	Fd      uintptr
+	Fd      int32
 	lock    sync.RWMutex
 }
 
-func NewJobFromFdT(fd uintptr, watchEvents int16, timeout int64, cb func(int16, error)) (job *CallBackJob) {
+func NewJobFromFdT(fd int32, watchEvents int16, timeout int64, cb func(int16, error)) (job *CallBackJob) {
 	job = &CallBackJob{
 		OnEvent: cb,
 		Timeout: timeout,
@@ -25,7 +25,7 @@ func NewJobFromFdT(fd uintptr, watchEvents int16, timeout int64, cb func(int16, 
 }
 
 func NewJobFromOsFileT(f os.File, watchEvents int16, timeout int64, cb func(int16, error)) *CallBackJob {
-	return NewJobFromFdT(f.Fd(), watchEvents, timeout, cb)
+	return NewJobFromFdT(int32(f.Fd()), watchEvents, timeout, cb)
 }
 
 // Updates the current timeout.
@@ -72,7 +72,7 @@ func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (futureTimeOut 
 }
 
 // Sets the current Worker. This method is called when a Job is added to a Worker in the pool.
-func (s *CallBackJob) SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd uintptr) {
+func (s *CallBackJob) SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int32) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.Timeout != 0 {

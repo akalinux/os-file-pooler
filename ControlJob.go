@@ -65,19 +65,19 @@ func (s *ControlJob) CheckTimeOut(now int64, lastTimeout int64) (futureTimeOut i
 }
 
 // Implemented only for interface compliance.
-func (s *ControlJob) SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int) {
+func (s *ControlJob) SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int32) {
 	s.worker = worker
 	s.buffer = make([]byte, 50)
 	watchEevents = CAN_READ
 	futureTimeOut = 0
-	fd = int(worker.read.Fd())
+	fd = int32(worker.read.Fd())
 	for i := range 2 {
 		fds := (worker.fds[i])
 		jobs := (worker.jobs[i])
 		if len(*jobs) != 0 || len(*fds) != 0 {
 			panic("Invalid worker state, there can be only one control job, and it it must be the frist job")
 		}
-		*fds = append(*fds, unix.PollFd{Events: watchEevents, Fd: int32(fd)})
+		*fds = append(*fds, unix.PollFd{Events: watchEevents, Fd: fd})
 		*jobs = append(*jobs, &JobContainer{Job: s})
 	}
 	return

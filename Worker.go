@@ -17,23 +17,23 @@ var ERR_QUE_FULL = errors.New("Queue is full")
 
 // https://man7.org/linux/man-pages/man2/poll.2.html
 const (
-	IN_ERROR = unix.POLLERR | // Errors
+	IN_ERROR = int16(unix.POLLERR | // Errors
 		unix.POLLHUP | // Other end has disconnected
-		unix.POLLNVAL // Not a valid handle
+		unix.POLLNVAL) // Not a valid handle
 
 	// catch all for EOF
-	IN_EOF = unix.POLLHUP | unix.POLLRDHUP
+	IN_EOF = int16(unix.POLLHUP | unix.POLLRDHUP)
 
 	// Checks if an fd can read
 	// Take a look t the unix poller constants for more info: unix.POLLER*.
-	CAN_READ = unix.POLLIN
+	CAN_READ = int16(unix.POLLIN)
 
 	// checks if an fd can write
 	// Take a look t the unix poller constants for more info: unix.POLLER*.
-	CAN_WRITE = unix.POLLOUT
+	CAN_WRITE = int16(unix.POLLOUT)
 
 	// watch both read and write events
-	CAN_RW = CAN_WRITE | CAN_READ
+	CAN_RW = int16(CAN_WRITE | CAN_READ)
 )
 
 type Worker struct {
@@ -136,19 +136,18 @@ func (s *Worker) NextState() (currentState byte, nextState byte, now int64, slee
 	nextState = s.state
 	currentFd := s.fds[currentState]
 	nextFd := s.fds[nextState]
+	currentJobs := s.jobs[currentState]
+	nextJobs := s.jobs[nextState]
 
 	// swap current and next
 	s.fds[nextState] = currentFd
-	s.fds[currentState] = nextFd
-
-	currentJobs := s.jobs[currentState]
-	nextJobs := s.jobs[nextState]
-	s.jobs[currentState] = nextJobs
 	s.jobs[nextState] = currentJobs
-
 	// reset the next objects to the defaults
 	*nextJobs = (*nextJobs)[:1]
 	*nextFd = (*nextFd)[:1]
+	s.fds[currentState] = nextFd
+	s.jobs[currentState] = nextJobs
+
 	return
 }
 
@@ -248,6 +247,8 @@ func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
 }
 
 func (s *Worker) Close() error {
+	s.locker.Lock()
+	defer s.locker.Unlock()
 	if s.closed {
 		// safe to call on a closed handle
 		s.write.Close()

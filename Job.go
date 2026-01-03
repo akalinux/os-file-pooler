@@ -36,7 +36,7 @@ type Job interface {
 	CheckTimeOut(now, lastTimeout int64) (futureTimeOut int64, TimeOutError error)
 
 	// Sets the current Worker. This method is called when a Job is added to a Worker in the pool.
-	SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int)
+	SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int32)
 
 	// This is called when Job is being removed from the pool.
 	// Make sure to remove the refernce of the current worker when implementing this method.
