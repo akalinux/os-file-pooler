@@ -293,8 +293,8 @@ func TestMultipleTimeouts(t *testing.T) {
 		make(map[string]any),
 		make(map[string]any),
 	}
-	var offset int64 = 25
-	var size int64 = 100
+	var offset int64 = 10
+	var size int64 = 60
 	var cmp int64 = size
 	var wg sync.WaitGroup
 	for i := range 3 {
