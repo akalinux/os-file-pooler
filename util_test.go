@@ -71,9 +71,11 @@ func Pipe() (r, w *os.File) {
 	return
 }
 
+var wokerCount = 1
+
 func createLocalWorker() *Worker {
 	// always have the master job.. so to run more than
-	w, e := NewLocalWorker(1)
+	w, e := NewLocalWorker(wokerCount)
 	if e != nil {
 		// if this breaks.. ya no point in testing anyting else!
 		panic(e)
@@ -81,7 +83,7 @@ func createLocalWorker() *Worker {
 	return w
 }
 
-func createRJob(cb func(config *OnCallBackConfig, e error)) (job Job, r *os.File, w *os.File) {
+func createRJob(cb func(config *OnCallBackConfig)) (job Job, r *os.File, w *os.File) {
 	var e error
 	r, w, e = os.Pipe()
 	if e != nil {

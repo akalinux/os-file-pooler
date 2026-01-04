@@ -2,6 +2,7 @@ package osfp
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -10,7 +11,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const EPOLL_RETRY_TIMEOUT = 10
+const EPOLL_RETRY_TIMEOUT = time.Millisecond * 10
 
 var ERR_SHUTDOWN = errors.New("Thread pool Shutdown")
 var ERR_QUE_FULL = errors.New("Queue is full")
@@ -60,7 +61,7 @@ func NewLocalWorker(limit int) (worker *Worker, osErr error) {
 		return nil, e
 	}
 	worker = NewWorker(
-		make(chan Job, 1),
+		make(chan Job, limit),
 		make(chan any, limit),
 		r, w,
 		limit,
@@ -95,10 +96,41 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 }
 
 func (s *Worker) JobCount() (JobCount int) {
-	JobCount = len(*s.jobs[s.state]) - 1
+	JobCount = len(s.throttle)
 	return
 }
 
+func (s *Worker) JobCap() int {
+	return cap(s.throttle)
+}
+
+func (s *Worker) PoolUsage() (capacity, usage int) {
+	capacity = cap(s.throttle)
+	usage = len(s.throttle)
+	return
+}
+
+func (s *Worker) PoolBacklog() (size, backlog int) {
+	backlog = len(s.que)
+	size = cap(s.que)
+	return
+}
+
+func (s *Worker) PoolUsageString() string {
+
+	c := cap(s.throttle)
+	u := len(s.throttle)
+	b := len(s.que)
+	x := cap(s.que)
+	t, l := s.LocalPoolUsage()
+	return fmt.Sprintf("Local Limits: %d/%d, Pool Capacity: %d/%d, Backlog %d/%d", t, l, u, c, b, x)
+}
+
+func (s *Worker) LocalPoolUsage() (usage, limit int) {
+	usage = len(s.jobs) - 1
+	limit = s.limit
+	return
+}
 func (s *Worker) Wakeup() (err error) {
 	s.locker.Lock()
 	defer s.locker.Unlock()
@@ -118,6 +150,8 @@ func (s *Worker) Run() {
 		currentState, nextState, now, sleep := s.NextState()
 		active, e := s.DoPoll(currentState, sleep)
 		if e != nil {
+			// Give the os some grace time to recover
+			time.Sleep(EPOLL_RETRY_TIMEOUT)
 			continue
 		}
 		s.WalkJobs(currentState, nextState, now, active)
@@ -141,6 +175,7 @@ func (s *Worker) NextState() (currentState byte, nextState byte, now int64, slee
 	sleep = -1
 	if s.nextTs > 0 {
 		diff := s.nextTs - now
+
 		sleep = max(diff, 0)
 	}
 
@@ -194,6 +229,8 @@ func (s *Worker) WalkJobs(cs, ns byte, now int64, active int) {
 	}
 
 }
+
+// Call this when a job needs to be removed from the pool.
 func (s *Worker) clearJob(job Job, e error) {
 	job.ClearPool(e)
 	<-s.throttle
@@ -233,13 +270,14 @@ func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
 				continue
 			} else {
 				job.nextTs = newTs
+				futureTs = newTs
 				flags = fd.Events
 			}
 
 		} else {
 			flags, futureTs, err = job.ProcessEvents(check, now)
 		}
-		if flags == 0 {
+		if flags == 0 || err != nil {
 			// happy ending!
 			s.clearJob(job, err)
 			continue
@@ -249,6 +287,7 @@ func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
 		*nextFds = append(*nextFds, fd)
 		*nextJobs = append(*nextJobs, job)
 		if futureTs > 0 {
+
 			if nextTs > 0 {
 				if nextTs > futureTs {
 					nextTs = futureTs

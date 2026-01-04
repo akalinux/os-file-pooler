@@ -8,13 +8,13 @@ import (
 type CallBackJob struct {
 	Timeout int64
 	Events  int16
-	OnEvent func(config *OnCallBackConfig, Err error)
+	OnEvent func(config *OnCallBackConfig)
 	Worker  *Worker
 	Fd      int32
 	lock    sync.RWMutex
 }
 
-func NewJobFromFdT(fd int32, watchEvents int16, timeout int64, cb func(*OnCallBackConfig, error)) (job *CallBackJob) {
+func NewJobFromFdT(fd int32, watchEvents int16, timeout int64, cb func(*OnCallBackConfig)) (job *CallBackJob) {
 	job = &CallBackJob{
 		OnEvent: cb,
 		Timeout: timeout,
@@ -25,7 +25,7 @@ func NewJobFromFdT(fd int32, watchEvents int16, timeout int64, cb func(*OnCallBa
 	return
 }
 
-func NewJobFromOsFileT(f os.File, watchEvents int16, timeout int64, cb func(*OnCallBackConfig, error)) *CallBackJob {
+func NewJobFromOsFileT(f os.File, watchEvents int16, timeout int64, cb func(*OnCallBackConfig)) *CallBackJob {
 	return NewJobFromFdT(int32(f.Fd()), watchEvents, timeout, cb)
 }
 
@@ -47,13 +47,13 @@ func (s *CallBackJob) ProcessEvents(currentEvents int16, now int64) (watchEevent
 	switch {
 	case currentEvents&CAN_RW != 0 && s.OnEvent != nil:
 		config := &OnCallBackConfig{
-			Timeout: s.Timeout,
-			Events:  s.Events,
+			timeout: s.Timeout,
+			events:  s.Events,
 		}
 
-		s.OnEvent(config, nil)
-		s.Events = config.Events
-		s.Timeout = config.Timeout
+		s.OnEvent(config)
+		s.Events = config.events
+		s.Timeout = config.timeout
 
 	case s.Timeout != 0:
 		futureTimeOut = now + s.Timeout
@@ -69,11 +69,32 @@ func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (futureTimeOut 
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	if s.Timeout == 0 {
+		futureTimeOut = 0
 		return
 	}
 	futureTimeOut = lastTimeout
-	// if we got here.. we need to make sure the old timeout isn't bad
-	if lastTimeout < now {
+	if lastTimeout == 0 {
+		futureTimeOut = now + s.Timeout
+
+	} else if lastTimeout <= now {
+
+		// if we got here.. we need to make sure the old timeout isn't bad
+		if s.OnEvent != nil {
+			res := &OnCallBackConfig{
+				events:  0,
+				timeout: 0,
+			}
+			s.OnEvent(res)
+			if res.timeout != 0 {
+				s.Timeout = res.timeout
+
+				futureTimeOut = now + s.Timeout
+				if res.events != 0 {
+					s.Events = res.events
+				}
+				return
+			}
+		}
 		TimeOutError = os.ErrDeadlineExceeded
 	}
 
@@ -86,9 +107,11 @@ func (s *CallBackJob) SetPool(worker *Worker, now int64) (watchEevents int16, fu
 	defer s.lock.Unlock()
 	if s.Timeout != 0 {
 		futureTimeOut = now + s.Timeout
+
 	}
 	watchEevents = s.Events
 	fd = s.Fd
+	s.Worker = worker
 
 	return
 }
@@ -100,6 +123,6 @@ func (s *CallBackJob) ClearPool(e error) {
 
 	s.Worker = nil
 	if s.OnEvent != nil {
-		s.OnEvent(nil, e)
+		s.OnEvent(&OnCallBackConfig{error: e})
 	}
 }

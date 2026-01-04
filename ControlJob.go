@@ -36,17 +36,24 @@ func (s *ControlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents
 	fds := worker.fds[state]
 	jobs := worker.jobs[state]
 
-	for worker.limit < len(worker.jobs)+len(*jobs)-1 {
+	for usage, limit := s.worker.LocalPoolUsage(); usage <= limit; {
 		select {
 		case job := <-que:
 			events, t, fd := job.SetPool(worker, now)
 			if events == 0 {
-
 				job.ClearPool(ERR_NO_EVENTS)
 				continue
 			}
-			if t > 0 && futureTimeOut > t {
-				futureTimeOut = t
+			if t > 0 {
+				if futureTimeOut > 0 {
+
+					if futureTimeOut > t {
+						futureTimeOut = t
+					}
+				} else {
+
+					futureTimeOut = t
+				}
 			}
 			p := unix.PollFd{
 				Fd:     int32(fd),
