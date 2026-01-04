@@ -87,7 +87,7 @@ func TestAddJob(t *testing.T) {
 	defer cancel()
 	defer s.Close()
 	t.Log("Adding Job")
-	err := s.TryAddJob(job)
+	err := s.AddJob(job)
 	if err != nil {
 		panic("We should be able to add our job")
 	}
@@ -112,7 +112,7 @@ func TestAddJob(t *testing.T) {
 			"  State: %d\n  fds[0]:%d, fds[1];%d jobs[0]:%d, jobs[1]:%d\n", state, cf, nf, cj, nj)
 	}
 	t.Log(s.PoolUsageString())
-	err = s.TryAddJob(job)
+	err = s.AddJob(job)
 	if err == nil {
 		t.Fatalf("Should have failed to add")
 	}
@@ -219,7 +219,7 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 	}
 }
 
-func TestAddTimeout(t *testing.T) {
+func TestAddFdTimeout(t *testing.T) {
 	worker := createLocalWorker()
 	j, _, w := createRJob(nil)
 	job, _ := j.(*CallBackJob)
@@ -258,7 +258,7 @@ func TestAddTimeout(t *testing.T) {
 
 }
 
-func TestMultipleTimeouts(t *testing.T) {
+func TestMultipleFdTimeouts(t *testing.T) {
 	w := func() *WorkerTestSet {
 		wokerCount = 3
 		defer func() {
@@ -342,5 +342,47 @@ func TestMultipleTimeouts(t *testing.T) {
 		}
 		cmp -= offset
 
+	}
+}
+
+func TestTimeout(t *testing.T) {
+	w := createLocalWorker()
+	defer w.Close()
+	var ts int64
+	var e error
+	var ok bool = false
+	job := &CallBackJob{
+		Timeout: 25,
+		OnEvent: func(c *OnCallBackConfig) {
+			if ok, e = c.InTimeout(); ok {
+
+				ts = time.Now().UnixMilli()
+			}
+		},
+	}
+	w.AddJob(job)
+	t.Log("Starting Loop")
+	now := time.Now().UnixMilli()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	go func() {
+		count := 0
+		// test framework created 1 job, the other 2 will be added
+		for count == 0 || w.JobCount() != 0 {
+			t.Logf("Job Count %d", w.JobCount())
+			w.SingleRun()
+			count++
+		}
+		t.Logf("Job Count %d", w.JobCount())
+		cancel()
+	}()
+	defer cancel()
+
+	<-ctx.Done()
+
+	if ts < now {
+		t.Error("Timeout did not run")
+	}
+	if e == nil {
+		t.Error("Job did not finish")
 	}
 }

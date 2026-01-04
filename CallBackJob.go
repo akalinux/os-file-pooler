@@ -68,6 +68,7 @@ func (s *CallBackJob) ProcessEvents(currentEvents int16, now int64) (watchEevent
 func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (futureTimeOut int64, TimeOutError error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
+	defer s.onRecover()
 	if s.Timeout == 0 {
 		futureTimeOut = 0
 		return
@@ -124,5 +125,12 @@ func (s *CallBackJob) ClearPool(e error) {
 	s.Worker = nil
 	if s.OnEvent != nil {
 		s.OnEvent(&OnCallBackConfig{error: e})
+	}
+	defer s.onRecover()
+}
+
+func (s *CallBackJob) onRecover() {
+	if e := recover(); e != nil {
+
 	}
 }

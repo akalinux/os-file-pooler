@@ -2,7 +2,10 @@ module github.com/akalinux/os-file-pooler
 
 go 1.25.5
 
-tool golang.org/x/tools/gopls
+tool (
+	github.com/fzipp/gocyclo/cmd/gocyclo
+	golang.org/x/tools/gopls
+)
 
 require (
 	github.com/BurntSushi/toml v1.5.0 // indirect
@@ -10,6 +13,7 @@ require (
 	github.com/fatih/gomodifytags v1.17.1-0.20250423142747-f3939df9aa3c // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
+	github.com/fzipp/gocyclo v0.6.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/jsonschema-go v0.3.0 // indirect
 	github.com/josharian/impl v1.5.0 // indirect

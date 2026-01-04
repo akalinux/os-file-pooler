@@ -48,10 +48,11 @@ type Worker struct {
 	limit    int
 	state    byte
 	jobs     []*[]*JobContainer
+	jobst    []*[]*JobContainer
 	fds      []*[]unix.PollFd
 	nextTs   int64
 	closed   bool
-	locker   sync.Mutex
+	locker   sync.RWMutex
 }
 
 func NewLocalWorker(limit int) (worker *Worker, osErr error) {
@@ -69,9 +70,9 @@ func NewLocalWorker(limit int) (worker *Worker, osErr error) {
 	return
 }
 func NewStandAloneWorker() (worker *Worker, osErr error) {
-
 	return NewLocalWorker(DEFAULT_WORKER_HANDLES)
 }
+
 func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, limit int) *Worker {
 	this := &Worker{
 		throttle: throttle,
@@ -85,6 +86,10 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 			{},
 			{},
 		},
+		jobst: []*[]*JobContainer{
+			{},
+			{},
+		},
 		fds: []*[]unix.PollFd{
 			{},
 			{},
@@ -95,8 +100,9 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 	return this
 }
 
+// Returns the number of active jobs in the local pool.
 func (s *Worker) JobCount() (JobCount int) {
-	JobCount = len(s.throttle)
+	JobCount, _ = s.LocalPoolUsage()
 	return
 }
 
@@ -127,10 +133,13 @@ func (s *Worker) PoolUsageString() string {
 }
 
 func (s *Worker) LocalPoolUsage() (usage, limit int) {
-	usage = len(s.jobs) - 1
+	s.locker.RLock()
+	defer s.locker.RUnlock()
+	usage = len(*s.jobs[s.state]) + len(*s.jobst[s.state]) - 1
 	limit = s.limit
 	return
 }
+
 func (s *Worker) Wakeup() (err error) {
 	s.locker.Lock()
 	defer s.locker.Unlock()
@@ -148,24 +157,24 @@ func (s *Worker) Run() {
 
 	for !s.closed {
 		currentState, nextState, now, sleep := s.NextState()
-		active, e := s.DoPoll(currentState, sleep)
+		active, e := s.doPoll(currentState, sleep)
 		if e != nil {
 			// Give the os some grace time to recover
 			time.Sleep(EPOLL_RETRY_TIMEOUT)
 			continue
 		}
-		s.WalkJobs(currentState, nextState, now, active)
+		s.walkJobs(currentState, nextState, now, active)
 	}
 }
 
 func (s *Worker) SingleRun() error {
 	currentState, nextState, now, sleep := s.NextState()
 
-	active, e := s.DoPoll(currentState, sleep)
+	active, e := s.doPoll(currentState, sleep)
 	if e != nil {
 		return e
 	}
-	s.WalkJobs(currentState, nextState, now, active)
+	s.walkJobs(currentState, nextState, now, active)
 
 	return nil
 }
@@ -187,21 +196,25 @@ func (s *Worker) NextState() (currentState byte, nextState byte, now int64, slee
 
 	nextFd := *s.fds[nextState]
 	nextJobs := *s.jobs[nextState]
+	nextJobst := *s.jobst[nextState]
 
 	nextFd = nextFd[:1]
 	nextJobs = nextJobs[:1]
+	nextJobst = nextJobst[:0]
 	s.fds[nextState] = &nextFd
 	s.jobs[nextState] = &nextJobs
+	s.jobst[nextState] = &nextJobst
 
 	return
 }
 
-func (s *Worker) DoPoll(cs byte, sleep int64) (active int, err error) {
+func (s *Worker) doPoll(cs byte, sleep int64) (active int, err error) {
+
 	active, err = unix.Poll(*s.fds[cs], int(sleep))
 	return
 }
 
-func (s *Worker) WalkJobs(cs, ns byte, now int64, active int) {
+func (s *Worker) walkJobs(cs, ns byte, now int64, active int) {
 
 	s.nextTs = -1
 
@@ -243,8 +256,8 @@ func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
 	currentJobs := (s.jobs[cs])
 	nextJobs := (s.jobs[ns])
 
-	loopSize := len(*currentJobs)
-	for i := 1; i < loopSize; i++ {
+	fdLoopSize := len(*currentFds)
+	for i := 1; i < fdLoopSize; i++ {
 		fd := (*currentFds)[i]
 		job := (*currentJobs)[i]
 		events := fd.Revents
@@ -265,12 +278,10 @@ func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
 				continue
 			}
 			// start our error check states
-			if newTs, err := job.CheckTimeOut(now, job.nextTs); err != nil {
-				s.clearJob(job, err)
+			if futureTs = s.checkJobTs(job, now); futureTs == 0 {
 				continue
 			} else {
-				job.nextTs = newTs
-				futureTs = newTs
+				job.nextTs = futureTs
 				flags = fd.Events
 			}
 
@@ -286,21 +297,37 @@ func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
 		fd.Revents = 0
 		*nextFds = append(*nextFds, fd)
 		*nextJobs = append(*nextJobs, job)
-		if futureTs > 0 {
+		nextTs = s.resolveNextTs(nextTs, futureTs)
 
-			if nextTs > 0 {
-				if nextTs > futureTs {
-					nextTs = futureTs
-				}
-			} else {
-				nextTs = futureTs
-			}
+	}
+
+	currentJobs = (s.jobst[cs])
+	nextJobs = (s.jobst[ns])
+	for _, job := range *currentJobs {
+		if futureTs := s.checkJobTs(job, now); futureTs == 0 {
+			continue
+		} else {
+			job.nextTs = futureTs
+			nextTs = s.resolveNextTs(nextTs, futureTs)
 		}
-
+		*nextJobs = append(*nextJobs, job)
 	}
 	s.nextTs = nextTs
 }
 
+func (s *Worker) resolveNextTs(nextTs, futureTs int64) int64 {
+	if futureTs > 0 {
+
+		if nextTs > 0 {
+			if nextTs > futureTs {
+				return futureTs
+			}
+		} else {
+			return futureTs
+		}
+	}
+	return nextTs
+}
 func (s *Worker) Close() error {
 	s.locker.Lock()
 	defer s.locker.Unlock()
@@ -314,18 +341,16 @@ func (s *Worker) Close() error {
 	return s.write.Close()
 }
 
-func (s *Worker) AddJob(job Job) (err error) {
-	if s.closed {
-		err = ERR_SHUTDOWN
+func (s *Worker) checkJobTs(job *JobContainer, now int64) (newTs int64) {
+	// start our error check states
+	if newTs, err := job.CheckTimeOut(now, job.nextTs); err != nil {
+		s.clearJob(job, err)
+		return 0
 	} else {
-		s.throttle <- struct{}{}
-		s.que <- job
-		err = s.Wakeup()
+		return newTs
 	}
-
-	return
 }
-func (s *Worker) TryAddJob(job Job) (err error) {
+func (s *Worker) AddJob(job Job) (err error) {
 	if s.closed {
 		err = ERR_SHUTDOWN
 	} else {
