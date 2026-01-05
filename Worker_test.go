@@ -3,7 +3,6 @@ package osfp
 import (
 	"context"
 	"os"
-	"sync"
 	"testing"
 	"time"
 )
@@ -20,10 +19,59 @@ func TestNewWorker(t *testing.T) {
 		t.Errorf("Expected 0 elements, got: %d", w.JobCount())
 	}
 
+	// Synthetic Job
+	ph, _, f := createRJob(nil)
+	defer f.Close()
+	job, _ := ph.(*CallBackJob)
+	job.Events = 0
+	w.throttle <- struct{}{}
+	w.que <- job
+	w.write.Write([]byte{1})
+	(*w.jobs[0])[0].ProcessEvents(0, 0)
+
+	// code coveratge.. for noop function
+	(*w.jobs[0])[0].CheckTimeOut(0, 0)
+
 	// should not throw errors
-	w.Close()
-	w.Close()
-	w.Close()
+	e = w.Close()
+	(*w.jobs[0])[0].ProcessEvents(0, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+
+	go func() {
+		w.SingleRun()
+		cancel()
+	}()
+	<-ctx.Done()
+
+	e = w.Close()
+	if e != ERR_SHUTDOWN {
+		t.Fatalf("Should have gotten a shutdown error!")
+	}
+	e = w.AddJob(nil)
+	if e != ERR_SHUTDOWN {
+		t.Fatalf("Should have gotten a shutdown error!")
+	}
+
+	e = w.Wakeup()
+	if e != ERR_SHUTDOWN {
+		t.Fatalf("Should have gotten a shutdown error!")
+	}
+	if e = w.SingleRun(); e != ERR_SHUTDOWN {
+		t.Fatalf("Should have gotten a shutdown error!")
+	}
+
+	// will crash if the code is broken..
+	(*w.jobs[0])[0].ProcessEvents(0, 0)
+
+}
+func TestSimulateOsError(t *testing.T) {
+	w, e := NewStandAloneWorker()
+	defer func() { w.Close() }()
+	w.write.Close()
+	e = w.Wakeup()
+	if e == nil {
+		t.Fatalf("Os simulation failed?")
+	}
 }
 
 func TestNextState(t *testing.T) {
@@ -140,6 +188,7 @@ func TestWorkerJobRead(t *testing.T) {
 	c := ""
 	b := make([]byte, 2)
 
+	w.Job.Timeout = 50
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer w.WorkerCleanup()
 	defer cancel()
@@ -153,8 +202,19 @@ func TestWorkerJobRead(t *testing.T) {
 			t.Log("Got Shutdown error")
 			return
 		}
+		config.PollRead()
 
+		if !config.IsRead() {
+			panic("SHOULD BE ABLE TO READ")
+		}
+		if config.IsWrite() {
+			panic("We are not in a write mode!")
+		}
+		if config.IsRW() {
+			panic("We are not in a Read+Write mode!")
+		}
 		s, x := w.r.Read(b[:cap(b)])
+		t.Logf("Timeout is: %d", w.Job.Timeout)
 		if x != nil {
 			panic(x)
 		}
@@ -194,10 +254,10 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 	now := time.Now().UnixMilli()
 	var e error
 	w.Job.OnEvent = func(config *OnCallBackConfig) {
-		if timeout, e = config.InTimeout(); timeout {
+		if timeout = config.InTimeout(); timeout {
+			e = config.InError()
 			diff = time.Now().UnixMilli() - now
 			t.Log("Timeout Check completed")
-		} else if e != nil {
 			t.Log("Error Check Completed, Shutting the worker down")
 			w.Worker.Close()
 		}
@@ -223,6 +283,11 @@ func TestAddFdTimeout(t *testing.T) {
 	worker := createLocalWorker()
 	j, _, w := createRJob(nil)
 	job, _ := j.(*CallBackJob)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+
+	// force the worker to wake up
+	worker.Wakeup()
+
 	job.SetTimeout(5)
 	defer worker.Close()
 	defer w.Close()
@@ -230,13 +295,13 @@ func TestAddFdTimeout(t *testing.T) {
 	var diff int64 = 0
 	now := time.Now().UnixMilli()
 	var e error
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
 	job.OnEvent = func(config *OnCallBackConfig) {
-		if timeout, e = config.InTimeout(); timeout {
+		if timeout = config.InTimeout(); timeout {
 			diff = time.Now().UnixMilli() - now
 			t.Log("Timeout Check completed")
-		} else if e != nil {
 			t.Log("Error Check Completed, Shutting the worker down")
+			e = config.InError()
 			worker.Close()
 		}
 	}
@@ -296,19 +361,22 @@ func TestMultipleFdTimeouts(t *testing.T) {
 	var offset int64 = 10
 	var size int64 = 60
 	var cmp int64 = size
-	var wg sync.WaitGroup
 	for i := range 3 {
-		wg.Add(1)
 		limit := cmp - offset
 		jobs[i].SetTimeout(limit)
 		cmp = limit
 		jobs[i].OnEvent = func(e *OnCallBackConfig) {
-			if ok, err := e.InTimeout(); ok {
+			t.Logf("Config: %v\n", e)
+			t.Log("In Callback")
+			if ok := e.InTimeout(); ok {
 				results[i]["ok"] = ok
-			} else {
-				wg.Done()
+				results[i]["err"] = e.InError()
 				results[i]["end"] = time.Now().UnixMilli()
-				results[i]["err"] = err
+				t.Log("In Timeout")
+			} else if e.InError() != nil {
+				t.Log("Something is going wrong")
+			} else if e.IsRead() {
+				t.Log("Reading?")
 			}
 		}
 	}
@@ -354,9 +422,9 @@ func TestTimeout(t *testing.T) {
 	job := &CallBackJob{
 		Timeout: 25,
 		OnEvent: func(c *OnCallBackConfig) {
-			if ok, e = c.InTimeout(); ok {
-
+			if ok = c.InTimeout(); ok {
 				ts = time.Now().UnixMilli()
+				e = c.InError()
 			}
 		},
 	}
@@ -385,4 +453,133 @@ func TestTimeout(t *testing.T) {
 	if e == nil {
 		t.Error("Job did not finish")
 	}
+}
+
+func TestWakeThenUpdateTimeout(t *testing.T) {
+	w := spawnRJobAndWorker(t)
+	defer w.WorkerCleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	w.Worker.Wakeup()
+
+	go func() {
+		w.Worker.SingleRun()
+		cancel()
+	}()
+	<-ctx.Done()
+	// code coverage
+	w.Job.SetTimeout(0)
+
+	w.Job.SetTimeout(5)
+
+	count := 0
+	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
+	w.Job.OnEvent = func(config *OnCallBackConfig) {
+		t.Logf("In Callback")
+
+		if !config.InTimeout() {
+			return
+		}
+		if count < 2 {
+			// update our timeout after our timeout
+			config.SetTimeout(5)
+			count++
+		}
+		// make sure we don't do it again
+
+	}
+
+	go func() {
+		for count == 0 || w.Worker.JobCount() != 0 {
+			t.Log("Entering Woker loop: " + w.Worker.WorkerStateDebugString())
+			w.Worker.SingleRun()
+		}
+		t.Log("Exiting Worker loop: " + w.Worker.WorkerStateDebugString())
+		cancel()
+	}()
+
+	<-ctx.Done()
+	if count != 2 {
+		t.Fatalf("Should have run the callback 2 times, got a total of %d", count)
+	}
+}
+
+func TestRelease(t *testing.T) {
+	w := spawnRJobAndWorker(t)
+	defer w.WorkerCleanup()
+
+	w.Job.OnEvent = func(config *OnCallBackConfig) {
+		config.Release()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	w.w.Write([]byte{0})
+
+	go func() {
+		w.Worker.SingleRun()
+		cancel()
+	}()
+	<-ctx.Done()
+
+	if w.Worker.JobCount() != 0 {
+		t.Fatalf("Expected 0 jobs, got: %d", w.Worker.JobCount())
+	}
+}
+
+func TestWrite(t *testing.T) {
+	m := createLocalWorker()
+	defer m.Close()
+	count := 0
+
+	var job Job
+	var r *os.File
+	var w *os.File
+	job, r, w = createWJob(func(config *OnCallBackConfig) {
+		switch count {
+		case 0:
+			config.PollRead()
+			t.Log("Writing first Chunk [Hello ]")
+			w.Write([]byte("Hello "))
+			if !config.IsWrite() {
+				panic("Should be in write mode")
+			}
+			config.SetTimeout(1)
+		case 1:
+			if ok := config.InTimeout(); !ok {
+			}
+			t.Log("Swapping back to write poll")
+			config.PollWrite()
+			config.SetTimeout(0)
+		case 2:
+			t.Log("Writing second Chunk [Word!]")
+			if !config.IsWrite() {
+				panic("Should be in write mode")
+			}
+			w.Write([]byte("Workd!"))
+		default:
+			w.Close()
+		}
+		count++
+	})
+	m.AddJob(job)
+	defer w.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	go func() {
+		for count < 3 {
+			t.Logf("On Pass: %d", count)
+			m.SingleRun()
+		}
+		t.Log("Done")
+		cancel()
+	}()
+
+	<-ctx.Done()
+	//cmp := "Hello Workd!"
+	save := ""
+	buff := make([]byte, 1024)
+	r.Read(buff)
+	save += string(buff)
+	t.Logf("Got chunk: [%s]", string(buff))
+
 }

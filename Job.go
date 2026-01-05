@@ -33,7 +33,7 @@ type Job interface {
 
 	// Called to validate the "lastTimeout", should return a futureTimeOut or 0 if there is no timeout.
 	// If the Job has timed out TimeOutError should be set to os.ErrDeadlineExceeded.
-	CheckTimeOut(now, lastTimeout int64) (futureTimeOut int64, TimeOutError error)
+	CheckTimeOut(now, lastTimeout int64) (WatchEvents int16, futureTimeOut int64, TimeOutError error)
 
 	// Sets the current Worker. This method is called when a Job is added to a Worker in the pool.
 	SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int32)

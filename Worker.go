@@ -106,22 +106,6 @@ func (s *Worker) JobCount() (JobCount int) {
 	return
 }
 
-func (s *Worker) JobCap() int {
-	return cap(s.throttle)
-}
-
-func (s *Worker) PoolUsage() (capacity, usage int) {
-	capacity = cap(s.throttle)
-	usage = len(s.throttle)
-	return
-}
-
-func (s *Worker) PoolBacklog() (size, backlog int) {
-	backlog = len(s.que)
-	size = cap(s.que)
-	return
-}
-
 func (s *Worker) PoolUsageString() string {
 
 	c := cap(s.throttle)
@@ -149,6 +133,8 @@ func (s *Worker) Wakeup() (err error) {
 	_, err = s.write.Write([]byte{0})
 	if err != nil {
 		s.write.Close()
+	} else {
+		return err
 	}
 	return
 }
@@ -169,7 +155,6 @@ func (s *Worker) Run() {
 
 func (s *Worker) SingleRun() error {
 	currentState, nextState, now, sleep := s.NextState()
-
 	active, e := s.doPoll(currentState, sleep)
 	if e != nil {
 		return e
@@ -210,6 +195,10 @@ func (s *Worker) NextState() (currentState byte, nextState byte, now int64, slee
 
 func (s *Worker) doPoll(cs byte, sleep int64) (active int, err error) {
 
+	if s.closed {
+		err = ERR_SHUTDOWN
+		return
+	}
 	active, err = unix.Poll(*s.fds[cs], int(sleep))
 	return
 }
@@ -234,8 +223,8 @@ func (s *Worker) walkJobs(cs, ns byte, now int64, active int) {
 	}
 	if err != nil {
 		s.closed = true
-		for i := 1; i < len(*s.jobs[cs]); i++ {
-			s.clearJob((*s.jobs[cs])[i], err)
+		for _, job := range *s.jobs[cs] {
+			job.ClearPool(err)
 		}
 	} else {
 		s.processNextSet(cs, ns, now, nextTs)
@@ -267,29 +256,28 @@ func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
 		var err error
 		if check == 0 {
 			// if we get here, we need to check for errors dirrectly
-			switch {
-			case events&IN_EOF != 0:
+			if events&IN_EOF != 0 {
 				// best guess is EOF.. may be a few others
 				// like io.ErrClosedPipe
 				s.clearJob(job, io.EOF)
 				continue
-			case events&IN_ERROR != 0:
+			} else if events&IN_ERROR != 0 {
 				s.clearJob(job, io.ErrUnexpectedEOF)
 				continue
 			}
 			// start our error check states
-			if futureTs = s.checkJobTs(job, now); futureTs == 0 {
+
+			if flags, futureTs, err = s.checkJobTs(job, now); futureTs == -1 {
 				continue
 			} else {
 				job.nextTs = futureTs
-				flags = fd.Events
 			}
 
 		} else {
 			flags, futureTs, err = job.ProcessEvents(check, now)
 		}
 		if flags == 0 || err != nil {
-			// happy ending!
+			// callback driven ending
 			s.clearJob(job, err)
 			continue
 		}
@@ -304,7 +292,7 @@ func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
 	currentJobs = (s.jobst[cs])
 	nextJobs = (s.jobst[ns])
 	for _, job := range *currentJobs {
-		if futureTs := s.checkJobTs(job, now); futureTs == 0 {
+		if _, futureTs, _ := s.checkJobTs(job, now); futureTs == -1 {
 			continue
 		} else {
 			job.nextTs = futureTs
@@ -341,15 +329,16 @@ func (s *Worker) Close() error {
 	return s.write.Close()
 }
 
-func (s *Worker) checkJobTs(job *JobContainer, now int64) (newTs int64) {
+func (s *Worker) checkJobTs(job *JobContainer, now int64) (newEvents int16, newTs int64, TimeoutError error) {
 	// start our error check states
-	if newTs, err := job.CheckTimeOut(now, job.nextTs); err != nil {
+	if newEvents, newTs, err := job.CheckTimeOut(now, job.nextTs); err != nil {
 		s.clearJob(job, err)
-		return 0
+		return 0, -1, err
 	} else {
-		return newTs
+		return newEvents, newTs, nil
 	}
 }
+
 func (s *Worker) AddJob(job Job) (err error) {
 	if s.closed {
 		err = ERR_SHUTDOWN

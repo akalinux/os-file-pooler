@@ -89,10 +89,19 @@ func createRJob(cb func(config *OnCallBackConfig)) (job Job, r *os.File, w *os.F
 	if e != nil {
 		panic(e)
 	}
-	job = NewJobFromFdT(int32(r.Fd()), CAN_READ, 0, cb)
+	job = NewJobFromOsFileT(r, CAN_READ, 0, cb)
 	return
 }
 
+func createWJob(cb func(config *OnCallBackConfig)) (job Job, r *os.File, w *os.File) {
+	var e error
+	r, w, e = os.Pipe()
+	if e != nil {
+		panic(e)
+	}
+	job = NewJobFromOsFileT(w, CAN_RW, 0, cb)
+	return
+}
 func (s *WorkerTestSet) singleLoop(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

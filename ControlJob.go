@@ -32,8 +32,7 @@ func (s *ControlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents
 		return
 	}
 
-	que := s.worker.que
-	_, EventError = s.worker.read.Read(s.buffer)
+	_, EventError = worker.read.Read(s.buffer)
 	if EventError != nil {
 		EventError = ERR_SHUTDOWN
 		worker.write.Close()
@@ -44,11 +43,13 @@ func (s *ControlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents
 	watchEevents = CAN_READ
 	// in the worker our next is current and our current is next
 	// so we need to convert state in orer
-	state := s.worker.state
+	state := worker.state
 	fds := worker.fds[state]
 	jobs := worker.jobs[state]
 	jobst := worker.jobst[state]
 
+	que := s.worker.que
+CTRL_LOOP:
 	for usage, limit := s.worker.LocalPoolUsage(); usage <= limit; {
 		select {
 		case job := <-que:
@@ -71,7 +72,7 @@ func (s *ControlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents
 			}
 		default:
 			// No more jobs to add
-			return
+			break CTRL_LOOP
 		}
 	}
 
@@ -80,8 +81,8 @@ func (s *ControlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents
 
 // Called to validate the "lastTimeout", should return a futureTimeOut or 0 if there is no timeout.
 // If the Job has timed out TimeOutError should be set to os.ErrDeadlineExceeded.
-func (s *ControlJob) CheckTimeOut(now int64, lastTimeout int64) (futureTimeOut int64, TimeOutError error) {
-	return 0, nil
+func (s *ControlJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents int16, futureTimeOut int64, TimeOutError error) {
+	return 0, 0, nil
 }
 
 // Implemented only for interface compliance.
@@ -94,9 +95,7 @@ func (s *ControlJob) SetPool(worker *Worker, now int64) (watchEevents int16, fut
 	for i := range 2 {
 		fds := (worker.fds[i])
 		jobs := (worker.jobs[i])
-		if len(*jobs) != 0 || len(*fds) != 0 {
-			panic("Invalid worker state, there can be only one control job, and it it must be the frist job")
-		}
+
 		*fds = append(*fds, unix.PollFd{Events: watchEevents, Fd: fd})
 		*jobs = append(*jobs, &JobContainer{Job: s})
 	}
