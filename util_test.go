@@ -55,7 +55,7 @@ func (s *Worker) forceAddJobToWorker(job Job) (futureTimeOut int64) {
 	p := unix.PollFd{Fd: fd, Events: watchEevents}
 	for i := range 2 {
 		jobs := s.jobs[i]
-		*jobs = append(*jobs, &JobContainer{Job: job})
+		*jobs = append(*jobs, &wjc{Job: job})
 		fds := s.fds[i]
 		*fds = append(*fds, p)
 	}
@@ -83,7 +83,7 @@ func createLocalWorker() *Worker {
 	return w
 }
 
-func createRJob(cb func(config *OnCallBackConfig)) (job Job, r *os.File, w *os.File) {
+func createRJob(cb func(config *CallbackEvent)) (job Job, r *os.File, w *os.File) {
 	var e error
 	r, w, e = os.Pipe()
 	if e != nil {
@@ -93,7 +93,7 @@ func createRJob(cb func(config *OnCallBackConfig)) (job Job, r *os.File, w *os.F
 	return
 }
 
-func createWJob(cb func(config *OnCallBackConfig)) (job Job, r *os.File, w *os.File) {
+func createWJob(cb func(config *CallbackEvent)) (job Job, r *os.File, w *os.File) {
 	var e error
 	r, w, e = os.Pipe()
 	if e != nil {

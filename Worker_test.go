@@ -23,7 +23,7 @@ func TestNewWorker(t *testing.T) {
 	ph, _, f := createRJob(nil)
 	defer f.Close()
 	job, _ := ph.(*CallBackJob)
-	job.Events = 0
+	job.events = 0
 	w.throttle <- struct{}{}
 	w.que <- job
 	w.write.Write([]byte{1})
@@ -81,7 +81,7 @@ func TestNextState(t *testing.T) {
 	job, _, w := createRJob(nil)
 	s.forceAddJobToWorker(job)
 	defer w.Close()
-	currentState, nextState, now, sleep := s.NextState()
+	currentState, nextState, now, sleep := s.nextState()
 	if lstate != currentState {
 		t.Error("current state, should match state")
 		return
@@ -172,7 +172,7 @@ func TestClearJob(t *testing.T) {
 	w.w.Close()
 	var e error
 	defer w.WorkerCleanup()
-	w.Job.OnEvent = func(c *OnCallBackConfig) {
+	w.Job.onEvent = func(c *CallbackEvent) {
 		e = c.InError()
 	}
 	w.singleLoop(t)
@@ -188,11 +188,11 @@ func TestWorkerJobRead(t *testing.T) {
 	c := ""
 	b := make([]byte, 2)
 
-	w.Job.Timeout = 50
+	w.Job.timeout = 50
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer w.WorkerCleanup()
 	defer cancel()
-	w.Job.OnEvent = func(config *OnCallBackConfig) {
+	w.Job.onEvent = func(config *CallbackEvent) {
 		t.Log("*** GOT READ EVENT ***")
 
 		if config.InError() != nil {
@@ -214,7 +214,7 @@ func TestWorkerJobRead(t *testing.T) {
 			panic("We are not in a Read+Write mode!")
 		}
 		s, x := w.r.Read(b[:cap(b)])
-		t.Logf("Timeout is: %d", w.Job.Timeout)
+		t.Logf("Timeout is: %d", w.Job.timeout)
 		if x != nil {
 			panic(x)
 		}
@@ -253,7 +253,7 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 	var diff int64 = 0
 	now := time.Now().UnixMilli()
 	var e error
-	w.Job.OnEvent = func(config *OnCallBackConfig) {
+	w.Job.onEvent = func(config *CallbackEvent) {
 		if timeout = config.InTimeout(); timeout {
 			e = config.InError()
 			diff = time.Now().UnixMilli() - now
@@ -296,7 +296,7 @@ func TestAddFdTimeout(t *testing.T) {
 	now := time.Now().UnixMilli()
 	var e error
 	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-	job.OnEvent = func(config *OnCallBackConfig) {
+	job.onEvent = func(config *CallbackEvent) {
 		if timeout = config.InTimeout(); timeout {
 			diff = time.Now().UnixMilli() - now
 			t.Log("Timeout Check completed")
@@ -365,7 +365,7 @@ func TestMultipleFdTimeouts(t *testing.T) {
 		limit := cmp - offset
 		jobs[i].SetTimeout(limit)
 		cmp = limit
-		jobs[i].OnEvent = func(e *OnCallBackConfig) {
+		jobs[i].onEvent = func(e *CallbackEvent) {
 			t.Logf("Config: %v\n", e)
 			t.Log("In Callback")
 			if ok := e.InTimeout(); ok {
@@ -420,8 +420,8 @@ func TestTimeout(t *testing.T) {
 	var e error
 	var ok bool = false
 	job := &CallBackJob{
-		Timeout: 25,
-		OnEvent: func(c *OnCallBackConfig) {
+		timeout: 25,
+		onEvent: func(c *CallbackEvent) {
 			if ok = c.InTimeout(); ok {
 				ts = time.Now().UnixMilli()
 				e = c.InError()
@@ -474,7 +474,7 @@ func TestWakeThenUpdateTimeout(t *testing.T) {
 
 	count := 0
 	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-	w.Job.OnEvent = func(config *OnCallBackConfig) {
+	w.Job.onEvent = func(config *CallbackEvent) {
 		t.Logf("In Callback")
 
 		if !config.InTimeout() {
@@ -508,7 +508,7 @@ func TestRelease(t *testing.T) {
 	w := spawnRJobAndWorker(t)
 	defer w.WorkerCleanup()
 
-	w.Job.OnEvent = func(config *OnCallBackConfig) {
+	w.Job.onEvent = func(config *CallbackEvent) {
 		config.Release()
 	}
 
@@ -534,7 +534,7 @@ func TestWrite(t *testing.T) {
 	var job Job
 	var r *os.File
 	var w *os.File
-	job, r, w = createWJob(func(config *OnCallBackConfig) {
+	job, r, w = createWJob(func(config *CallbackEvent) {
 		switch count {
 		case 0:
 			config.PollRead()

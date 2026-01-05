@@ -9,7 +9,7 @@ import (
 // Used to shutdown a new Job, when no events were aded
 var ERR_NO_EVENTS = errors.New("No watchEvents returned")
 
-func (s *ControlJob) computeFutureT(f, t int64) (futureTimeOut int64) {
+func (s *controlJob) computeFutureT(f, t int64) (futureTimeOut int64) {
 	if f > 0 {
 
 		if f > t {
@@ -21,7 +21,8 @@ func (s *ControlJob) computeFutureT(f, t int64) (futureTimeOut int64) {
 	}
 	return
 }
-func (s *ControlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents int16, futureTimeOut int64, EventError error) {
+
+func (s *controlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents int16, futureTimeOut int64, EventError error) {
 	worker := s.worker
 	if currentEvents&IN_ERROR != 0 {
 		watchEevents = 0
@@ -60,7 +61,7 @@ CTRL_LOOP:
 					continue
 				}
 				futureTimeOut = s.computeFutureT(futureTimeOut, t)
-				*jobst = append(*jobst, &JobContainer{Job: job, nextTs: t})
+				*jobst = append(*jobst, &wjc{Job: job, nextTs: t})
 			} else {
 				futureTimeOut = s.computeFutureT(futureTimeOut, t)
 				p := unix.PollFd{
@@ -68,7 +69,7 @@ CTRL_LOOP:
 					Events: events,
 				}
 				*fds = append(*fds, p)
-				*jobs = append(*jobs, &JobContainer{Job: job, nextTs: t})
+				*jobs = append(*jobs, &wjc{Job: job, nextTs: t})
 			}
 		default:
 			// No more jobs to add
@@ -81,12 +82,12 @@ CTRL_LOOP:
 
 // Called to validate the "lastTimeout", should return a futureTimeOut or 0 if there is no timeout.
 // If the Job has timed out TimeOutError should be set to os.ErrDeadlineExceeded.
-func (s *ControlJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents int16, futureTimeOut int64, TimeOutError error) {
+func (s *controlJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents int16, futureTimeOut int64, TimeOutError error) {
 	return 0, 0, nil
 }
 
 // Implemented only for interface compliance.
-func (s *ControlJob) SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int32) {
+func (s *controlJob) SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int32) {
 	s.worker = worker
 	s.buffer = make([]byte, 50)
 	watchEevents = CAN_READ
@@ -97,24 +98,28 @@ func (s *ControlJob) SetPool(worker *Worker, now int64) (watchEevents int16, fut
 		jobs := (worker.jobs[i])
 
 		*fds = append(*fds, unix.PollFd{Events: watchEevents, Fd: fd})
-		*jobs = append(*jobs, &JobContainer{Job: s})
+		*jobs = append(*jobs, &wjc{Job: s})
 	}
 	return
 }
 
 // Implemented only for interface compliance.
-func (s *ControlJob) ClearPool(_ error) {
+func (s *controlJob) ClearPool(_ error) {
 	s.worker = nil
 	s.buffer = nil
 }
 
-type ControlJob struct {
+type controlJob struct {
 	worker *Worker
 	buffer []byte
 }
 
-func NewControlJob() *ControlJob {
-	return &ControlJob{
+func NewControlJob() *controlJob {
+	return &controlJob{
 		buffer: make([]byte, 50),
 	}
+}
+
+func (s *controlJob) Release() error {
+	return nil
 }

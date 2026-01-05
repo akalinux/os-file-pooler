@@ -42,4 +42,6 @@ type Job interface {
 	// Make sure to remove the refernce of the current worker when implementing this method.
 	// The error value is nil if the "watchEvents" value is 0 and no errors were found.
 	ClearPool(error)
+
+	Release() (message error)
 }

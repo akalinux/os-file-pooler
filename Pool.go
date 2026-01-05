@@ -1,44 +1,34 @@
 package osfp
 
 import (
+	"cmp"
 	"errors"
+	"fmt"
+	"log/slog"
 	"os"
+	"slices"
 	"sync"
 )
 
+var ERR_IS_RUNNING = errors.New("Thread pool is all ready running")
+
 type Pool struct {
-	locker   sync.Mutex
+	locker   sync.RWMutex
 	workers  []*Worker
 	closed   bool
+	running  bool
 	throttle chan any
 	que      chan Job
 }
 
-func (s *Pool) AddJob(job Job) error {
+func (s *Pool) Stop() error {
 	s.locker.Lock()
 	defer s.locker.Unlock()
-	if s.closed {
-		return errors.New("Pool is closed!")
+	if s.closed || !s.running {
+		return ERR_SHUTDOWN
 	}
+	s.running = false
 
-	// force blocking here if the throttle que is backed up
-	s.throttle <- struct{}{}
-
-	s.que <- job
-	for _, worker := range s.workers {
-		// if this runs into an error.. most likely its a memory limit
-		worker.Wakeup()
-	}
-
-	return nil
-}
-
-func (s *Pool) Close() error {
-	s.locker.Lock()
-	defer s.locker.Unlock()
-	if s.closed {
-		return errors.New("Pool is all ready closed!")
-	}
 	for _, worker := range s.workers {
 		worker.Close()
 	}
@@ -70,10 +60,9 @@ func NewPool(threads int, limit int) (*Pool, error) {
 	que := make(chan Job, threads)
 	throttle := make(chan any, limit)
 	workers := make([]*Worker, 0, threads)
-	sigs := make([]*os.File, 0, threads)
 
 	// we always have 1 master file handle
-	memberLimit := 1 + limit/threads
+	memberLimit := limit / threads
 	res := Pool{
 		workers:  workers,
 		throttle: throttle,
@@ -83,14 +72,79 @@ func NewPool(threads int, limit int) (*Pool, error) {
 	for i := range threads {
 		r, w, e := os.Pipe()
 		if e != nil {
-			res.Close()
+			res.Stop()
 			return nil, e
 		}
 		t := NewWorker(que, throttle, r, w, memberLimit)
 		go t.Run()
 		workers[i] = t
-		sigs[i] = w
 	}
 
 	return &res, nil
+}
+
+type sortSet struct {
+	worker int
+	jobs   int
+}
+
+func cmpSortSet(a, b *sortSet) int {
+	return cmp.Compare(a.jobs, b.jobs)
+}
+
+// Adds a Job to the pool, does best effort on load ballancing.
+func (s *Pool) AddJob(job Job) error {
+	s.locker.RLock()
+	defer s.locker.RUnlock()
+	if s.closed || !s.running {
+		return ERR_SHUTDOWN
+	}
+	s.throttle <- struct{}{}
+	s.que <- job
+
+	snapshot := make([]*sortSet, len(s.workers))
+	for i, worker := range s.workers {
+		snapshot[i] = &sortSet{worker: i, jobs: worker.JobCount()}
+	}
+	slices.SortFunc(snapshot, cmpSortSet)
+	for _, set := range snapshot {
+		s.workers[set.worker].Wakeup()
+	}
+
+	return nil
+}
+
+func (s *Pool) Start() error {
+	s.locker.Lock()
+	defer s.locker.Unlock()
+	slog.Info("Trying to start worker pool")
+	if s.closed {
+		return ERR_SHUTDOWN
+	}
+	if s.running {
+		return ERR_IS_RUNNING
+	}
+	s.running = true
+
+	for i := range s.workers {
+		slog.Info(fmt.Sprintf("Starting thread %d", i))
+		go s.launchWorker(i)
+	}
+	return nil
+}
+
+func (s *Pool) launchWorker(i int) {
+	slog.Info(fmt.Sprintf("Starting worker: %d", i))
+	w := s.workers[i]
+	w.Run()
+	slog.Info(fmt.Sprintf("Stopping worker: %d", i))
+	defer s.workerPanic(w, i)
+}
+
+func (s *Pool) workerPanic(worker *Worker, id int) {
+	if e := recover(); e != nil {
+		msg := fmt.Sprintf("Thread Pool Panic in worker: %d, eror was: %v", id, e)
+		slog.Error(msg)
+		worker.Close()
+	}
 }

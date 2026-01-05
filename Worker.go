@@ -47,8 +47,8 @@ type Worker struct {
 	write    *os.File
 	limit    int
 	state    byte
-	jobs     []*[]*JobContainer
-	jobst    []*[]*JobContainer
+	jobs     []*[]*wjc
+	jobst    []*[]*wjc
 	fds      []*[]unix.PollFd
 	nextTs   int64
 	closed   bool
@@ -82,11 +82,11 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 		closed:   false,
 		read:     read,
 		write:    write,
-		jobs: []*[]*JobContainer{
+		jobs: []*[]*wjc{
 			{},
 			{},
 		},
-		jobst: []*[]*JobContainer{
+		jobst: []*[]*wjc{
 			{},
 			{},
 		},
@@ -142,7 +142,7 @@ func (s *Worker) Wakeup() (err error) {
 func (s *Worker) Run() {
 
 	for !s.closed {
-		currentState, nextState, now, sleep := s.NextState()
+		currentState, nextState, now, sleep := s.nextState()
 		active, e := s.doPoll(currentState, sleep)
 		if e != nil {
 			// Give the os some grace time to recover
@@ -154,7 +154,7 @@ func (s *Worker) Run() {
 }
 
 func (s *Worker) SingleRun() error {
-	currentState, nextState, now, sleep := s.NextState()
+	currentState, nextState, now, sleep := s.nextState()
 	active, e := s.doPoll(currentState, sleep)
 	if e != nil {
 		return e
@@ -164,7 +164,7 @@ func (s *Worker) SingleRun() error {
 	return nil
 }
 
-func (s *Worker) NextState() (currentState byte, nextState byte, now int64, sleep int64) {
+func (s *Worker) nextState() (currentState byte, nextState byte, now int64, sleep int64) {
 	now = time.Now().UnixMilli()
 	sleep = -1
 	if s.nextTs > 0 {
@@ -329,7 +329,7 @@ func (s *Worker) Close() error {
 	return s.write.Close()
 }
 
-func (s *Worker) checkJobTs(job *JobContainer, now int64) (newEvents int16, newTs int64, TimeoutError error) {
+func (s *Worker) checkJobTs(job *wjc, now int64) (newEvents int16, newTs int64, TimeoutError error) {
 	// start our error check states
 	if newEvents, newTs, err := job.CheckTimeOut(now, job.nextTs); err != nil {
 		s.clearJob(job, err)

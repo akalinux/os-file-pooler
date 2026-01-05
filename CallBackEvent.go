@@ -2,10 +2,11 @@ package osfp
 
 import "os"
 
-type OnCallBackConfig struct {
+type CallbackEvent struct {
+	nextTs int64
+
+	// internal timeout config
 	timeout int64
-	// Update this value to set a new timeout
-	Timeout int64
 	// Update this value to change what events we poll
 	events int16
 
@@ -16,55 +17,55 @@ type OnCallBackConfig struct {
 }
 
 // Returns the current error or nil
-func (s *OnCallBackConfig) InError() error {
+func (s *CallbackEvent) InError() error {
 	return s.error
 }
 
 // Returns true if this this job is in a timeout.  If the job is in an error state error is not nil.
-func (s *OnCallBackConfig) InTimeout() bool {
+func (s *CallbackEvent) InTimeout() bool {
 	return s.error == os.ErrDeadlineExceeded
 }
 
 // Returns true if the job is ready to read.
-func (s *OnCallBackConfig) IsRead() bool {
+func (s *CallbackEvent) IsRead() bool {
 	return s.error == nil && s.currentEvents&CAN_READ != 0
 }
 
 // Returns true if the job is ready to write.
-func (s *OnCallBackConfig) IsWrite() bool {
+func (s *CallbackEvent) IsWrite() bool {
 	return s.error == nil && s.currentEvents&CAN_WRITE != 0
 }
 
 // Returns true if the job ready to read and write.
-func (s *OnCallBackConfig) IsRW() bool {
+func (s *CallbackEvent) IsRW() bool {
 	return s.error == nil && s.currentEvents&CAN_READ != 0 && s.events&CAN_WRITE != 0
 }
 
 // Sets the timeout for the listener in the current job.
-func (s *OnCallBackConfig) SetTimeout(Timeout int64) {
-	s.Timeout = Timeout
+func (s *CallbackEvent) SetTimeout(Timeout int64) {
+	s.timeout = Timeout
 	if s.error == os.ErrDeadlineExceeded {
 		s.error = nil
 	}
 }
 
 // Tells the Current worker to stop polling this job and remove it from the thread pool.
-func (s *OnCallBackConfig) Release() {
+func (s *CallbackEvent) Release() {
 	s.events = CAN_END
-	s.Timeout = 0
+	s.timeout = 0
 }
 
 // Tells current worker to poll reads for this job.
-func (s *OnCallBackConfig) PollRead() {
+func (s *CallbackEvent) PollRead() {
 	s.events = CAN_READ
 }
 
 // Tells current worker poll writes for this job.
-func (s *OnCallBackConfig) PollWrite() {
+func (s *CallbackEvent) PollWrite() {
 	s.events = CAN_WRITE
 }
 
 // Tells current worker poll both read and write for this job.
-func (s *OnCallBackConfig) PollReadWrite() {
+func (s *CallbackEvent) PollReadWrite() {
 	s.events = CAN_RW
 }
