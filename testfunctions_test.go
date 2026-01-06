@@ -41,7 +41,7 @@ func (s *Worker) WorkerStateDebugString() string {
 
 func (s *WorkerTestSet) WorkerCleanup() {
 	s.w.Close()
-	s.Worker.Close()
+	s.Worker.Stop()
 }
 
 // For internal use only!!

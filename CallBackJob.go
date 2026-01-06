@@ -11,10 +11,11 @@ var ERR_CALLBACK_PANIC = errors.New("Callback Panic")
 type CallBackJob struct {
 	timeout int64
 	events  int16
-	onEvent func(config *CallbackEvent)
+	onEvent func(event *CallbackEvent)
 	worker  *Worker
 	fd      int32
 	Lock    sync.RWMutex
+	ran     bool
 }
 
 func NewJobFromFdT(fd int32, watchEvents int16, timeout int64, cb func(*CallbackEvent)) (job *CallBackJob) {
@@ -51,6 +52,7 @@ func (s *CallBackJob) ProcessEvents(currentEvents int16, now int64) (watchEevent
 
 	s.Lock.RLock()
 	defer s.Lock.RUnlock()
+	s.ran = false
 	if currentEvents&CAN_RW != 0 {
 		config := &CallbackEvent{
 			timeout:       s.timeout,
@@ -60,7 +62,7 @@ func (s *CallBackJob) ProcessEvents(currentEvents int16, now int64) (watchEevent
 		}
 
 		s.safeEvent(config)
-		EventError = config.InError()
+		EventError = config.Error()
 
 	}
 	if s.timeout != 0 {
@@ -72,12 +74,16 @@ func (s *CallBackJob) ProcessEvents(currentEvents int16, now int64) (watchEevent
 }
 
 func (s *CallBackJob) safeEvent(config *CallbackEvent) {
+	defer s.onRecover(config)
+	if s.ran {
+		return
+	}
+	s.ran = true
 	if s.onEvent != nil {
 		s.onEvent(config)
 	}
 	s.events = config.events
 	s.timeout = config.timeout
-	defer s.onRecover(config)
 }
 
 // Called to validate the "lastTimeout", should return a futureTimeOut or 0 if there is no timeout.
@@ -85,6 +91,7 @@ func (s *CallBackJob) safeEvent(config *CallbackEvent) {
 func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents int16, futureTimeOut int64, TimeOutError error) {
 	s.Lock.RLock()
 	defer s.Lock.RUnlock()
+	s.ran = false
 	if s.timeout == 0 {
 		futureTimeOut = 0
 		NewEvents = s.events
@@ -121,6 +128,7 @@ func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents int1
 func (s *CallBackJob) SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int32) {
 	s.Lock.Lock()
 	defer s.Lock.Unlock()
+	s.ran = false
 	if s.timeout != 0 {
 		futureTimeOut = now + s.timeout
 

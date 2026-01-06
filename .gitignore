@@ -1,3 +1,5 @@
 *.swp
 cover.html
 coverage.out
+sig
+nohup.out

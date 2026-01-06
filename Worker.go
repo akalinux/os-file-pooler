@@ -12,6 +12,7 @@ import (
 )
 
 const EPOLL_RETRY_TIMEOUT = time.Millisecond * 10
+const UNLIMITED_QUE_SIZE = 100
 
 var ERR_SHUTDOWN = errors.New("Thread pool Shutdown")
 var ERR_QUE_FULL = errors.New("Queue is full")
@@ -61,9 +62,18 @@ func NewLocalWorker(limit int) (worker *Worker, osErr error) {
 	if e != nil {
 		return nil, e
 	}
+	var throttle chan any
+	var que chan Job
+	if limit == 0 {
+		throttle = nil
+		que = make(chan Job, UNLIMITED_QUE_SIZE)
+	} else {
+		throttle = make(chan any, limit)
+		que = make(chan Job, limit)
+	}
 	worker = NewWorker(
-		make(chan Job, limit),
-		make(chan any, limit),
+		que,
+		throttle,
 		r, w,
 		limit,
 	)
@@ -127,6 +137,10 @@ func (s *Worker) LocalPoolUsage() (usage, limit int) {
 func (s *Worker) Wakeup() (err error) {
 	s.locker.Lock()
 	defer s.locker.Unlock()
+	return s.wakeup()
+}
+
+func (s *Worker) wakeup() (err error) {
 	if s.closed {
 		return ERR_SHUTDOWN
 	}
@@ -139,7 +153,10 @@ func (s *Worker) Wakeup() (err error) {
 	return
 }
 
-func (s *Worker) Run() {
+func (s *Worker) Start() error {
+	if s.closed {
+		return ERR_SHUTDOWN
+	}
 
 	for !s.closed {
 		currentState, nextState, now, sleep := s.nextState()
@@ -151,6 +168,7 @@ func (s *Worker) Run() {
 		}
 		s.walkJobs(currentState, nextState, now, active)
 	}
+	return nil
 }
 
 func (s *Worker) SingleRun() error {
@@ -235,7 +253,9 @@ func (s *Worker) walkJobs(cs, ns byte, now int64, active int) {
 // Call this when a job needs to be removed from the pool.
 func (s *Worker) clearJob(job Job, e error) {
 	job.ClearPool(e)
-	<-s.throttle
+	if s.limit != 0 {
+		<-s.throttle
+	}
 }
 
 func (s *Worker) processNextSet(cs, ns byte, now int64, StarterNextTs int64) {
@@ -316,7 +336,7 @@ func (s *Worker) resolveNextTs(nextTs, futureTs int64) int64 {
 	}
 	return nextTs
 }
-func (s *Worker) Close() error {
+func (s *Worker) Stop() error {
 	s.locker.Lock()
 	defer s.locker.Unlock()
 	if s.closed {
@@ -340,18 +360,28 @@ func (s *Worker) checkJobTs(job *wjc, now int64) (newEvents int16, newTs int64, 
 }
 
 func (s *Worker) AddJob(job Job) (err error) {
+	s.locker.RLock()
+	defer s.locker.RUnlock()
 	if s.closed {
 		err = ERR_SHUTDOWN
+		return
+	}
+	if s.limit == 0 {
+		s.que <- job
+		err = s.wakeup()
 	} else {
 		select {
-
 		case s.throttle <- struct{}{}:
 			s.que <- job
-			err = s.Wakeup()
+			err = s.wakeup()
 		default:
 			err = ERR_QUE_FULL
 		}
 	}
 
 	return
+}
+
+func (s *Worker) NewUtil() *Util {
+	return &Util{s}
 }

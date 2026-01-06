@@ -17,8 +17,12 @@ type CallbackEvent struct {
 }
 
 // Returns the current error or nil
-func (s *CallbackEvent) InError() error {
+func (s *CallbackEvent) Error() error {
 	return s.error
+}
+
+func (s *CallbackEvent) InError() bool {
+	return s.error != nil
 }
 
 // Returns true if this this job is in a timeout.  If the job is in an error state error is not nil.

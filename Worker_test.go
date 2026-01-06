@@ -33,7 +33,7 @@ func TestNewWorker(t *testing.T) {
 	(*w.jobs[0])[0].CheckTimeOut(0, 0)
 
 	// should not throw errors
-	e = w.Close()
+	e = w.Stop()
 	(*w.jobs[0])[0].ProcessEvents(0, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 
@@ -43,7 +43,7 @@ func TestNewWorker(t *testing.T) {
 	}()
 	<-ctx.Done()
 
-	e = w.Close()
+	e = w.Stop()
 	if e != ERR_SHUTDOWN {
 		t.Fatalf("Should have gotten a shutdown error!")
 	}
@@ -66,7 +66,7 @@ func TestNewWorker(t *testing.T) {
 }
 func TestSimulateOsError(t *testing.T) {
 	w, e := NewStandAloneWorker()
-	defer func() { w.Close() }()
+	defer func() { w.Stop() }()
 	w.write.Close()
 	e = w.Wakeup()
 	if e == nil {
@@ -76,7 +76,7 @@ func TestSimulateOsError(t *testing.T) {
 
 func TestNextState(t *testing.T) {
 	s := createLocalWorker()
-	defer s.Close()
+	defer s.Stop()
 	lstate := s.state
 	job, _, w := createRJob(nil)
 	s.forceAddJobToWorker(job)
@@ -133,8 +133,8 @@ func TestAddJob(t *testing.T) {
 	t.Log("Job created")
 	defer w.Close()
 	defer cancel()
-	defer s.Close()
-	t.Log("Adding Job")
+	defer s.Stop()
+	t.Log("Adding Job, worker State is: " + s.PoolUsageString())
 	err := s.AddJob(job)
 	if err != nil {
 		panic("We should be able to add our job")
@@ -173,7 +173,7 @@ func TestClearJob(t *testing.T) {
 	var e error
 	defer w.WorkerCleanup()
 	w.Job.onEvent = func(c *CallbackEvent) {
-		e = c.InError()
+		e = c.Error()
 	}
 	w.singleLoop(t)
 	if e == nil {
@@ -195,8 +195,8 @@ func TestWorkerJobRead(t *testing.T) {
 	w.Job.onEvent = func(config *CallbackEvent) {
 		t.Log("*** GOT READ EVENT ***")
 
-		if config.InError() != nil {
-			if config.InError() != ERR_SHUTDOWN {
+		if config.Error() != nil {
+			if config.Error() != ERR_SHUTDOWN {
 				panic("Non shutdown error!")
 			}
 			t.Log("Got Shutdown error")
@@ -221,14 +221,14 @@ func TestWorkerJobRead(t *testing.T) {
 		c += string(b[:s])
 		if c == TEST_STRING {
 			t.Log("Got full string")
-			w.Worker.Close()
+			w.Worker.Stop()
 		}
 	}
 
 	fail := true
 	go func() {
 		// full test
-		w.Worker.Run()
+		w.Worker.Start()
 		fail = false
 		cancel()
 	}()
@@ -255,16 +255,16 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 	var e error
 	w.Job.onEvent = func(config *CallbackEvent) {
 		if timeout = config.InTimeout(); timeout {
-			e = config.InError()
+			e = config.Error()
 			diff = time.Now().UnixMilli() - now
 			t.Log("Timeout Check completed")
 			t.Log("Error Check Completed, Shutting the worker down")
-			w.Worker.Close()
+			w.Worker.Stop()
 		}
 	}
 	t.Logf("%s\n", w.Worker.WorkerStateDebugString())
 	go func() {
-		w.Worker.Run()
+		w.Worker.Start()
 		defer cancel()
 	}()
 	<-ctx.Done()
@@ -289,7 +289,7 @@ func TestAddFdTimeout(t *testing.T) {
 	worker.Wakeup()
 
 	job.SetTimeout(5)
-	defer worker.Close()
+	defer worker.Stop()
 	defer w.Close()
 	var timeout bool
 	var diff int64 = 0
@@ -301,13 +301,13 @@ func TestAddFdTimeout(t *testing.T) {
 			diff = time.Now().UnixMilli() - now
 			t.Log("Timeout Check completed")
 			t.Log("Error Check Completed, Shutting the worker down")
-			e = config.InError()
-			worker.Close()
+			e = config.Error()
+			worker.Stop()
 		}
 	}
 	worker.AddJob(job)
 	go func() {
-		worker.Run()
+		worker.Start()
 		defer cancel()
 	}()
 	<-ctx.Done()
@@ -365,15 +365,19 @@ func TestMultipleFdTimeouts(t *testing.T) {
 		limit := cmp - offset
 		jobs[i].SetTimeout(limit)
 		cmp = limit
+		count := 0
+		id := i
 		jobs[i].onEvent = func(e *CallbackEvent) {
+			count++
+			t.Logf("** Job %d, called: %d", id, count)
 			t.Logf("Config: %v\n", e)
 			t.Log("In Callback")
 			if ok := e.InTimeout(); ok {
 				results[i]["ok"] = ok
-				results[i]["err"] = e.InError()
+				results[i]["err"] = e.Error()
 				results[i]["end"] = time.Now().UnixMilli()
 				t.Log("In Timeout")
-			} else if e.InError() != nil {
+			} else if e.Error() != nil {
 				t.Log("Something is going wrong")
 			} else if e.IsRead() {
 				t.Log("Reading?")
@@ -415,7 +419,7 @@ func TestMultipleFdTimeouts(t *testing.T) {
 
 func TestTimeout(t *testing.T) {
 	w := createLocalWorker()
-	defer w.Close()
+	defer w.Stop()
 	var ts int64
 	var e error
 	var ok bool = false
@@ -424,7 +428,7 @@ func TestTimeout(t *testing.T) {
 		onEvent: func(c *CallbackEvent) {
 			if ok = c.InTimeout(); ok {
 				ts = time.Now().UnixMilli()
-				e = c.InError()
+				e = c.Error()
 			}
 		},
 	}
@@ -528,7 +532,7 @@ func TestRelease(t *testing.T) {
 
 func TestWrite(t *testing.T) {
 	m := createLocalWorker()
-	defer m.Close()
+	defer m.Stop()
 	count := 0
 
 	var job Job
@@ -581,5 +585,77 @@ func TestWrite(t *testing.T) {
 	r.Read(buff)
 	save += string(buff)
 	t.Logf("Got chunk: [%s]", string(buff))
+
+}
+
+func TestNonWorkerReconfigure(t *testing.T) {
+	w := spawnRJobAndWorker(t)
+	defer w.WorkerCleanup()
+	ctx, cancle := context.WithTimeout(context.Background(), time.Second*2)
+
+	// code coverrage
+	w.Job.SetCallback(nil)
+
+	w.Job.Release()
+	if w.Worker.JobCount() == 0 {
+		panic("Should have a job right now")
+	}
+
+	go func() {
+		for w.Worker.JobCount() != 0 {
+			w.Worker.SingleRun()
+		}
+		cancle()
+	}()
+	<-ctx.Done()
+	if w.Worker.JobCount() != 0 {
+		t.Fatalf("Job was not released")
+	}
+
+	ctx, cancle = context.WithTimeout(context.Background(), time.Second*2)
+	w.Worker.AddJob(w.Job)
+	w.Job.SetEvents(CAN_READ)
+
+	go func() {
+		// need one loop load the job into the worker
+		t.Log("Setting up Woker loop: " + w.Worker.WorkerStateDebugString())
+		w.Worker.SingleRun()
+		t.Log("Entering up Woker loop: " + w.Worker.WorkerStateDebugString())
+		// force the job to have a wokrer before we start
+		w.Job.SetEvents(CAN_END)
+		for w.Worker.JobCount() != 0 {
+			w.Worker.SingleRun()
+		}
+		t.Log("Exiting Woker loop: " + w.Worker.WorkerStateDebugString())
+		cancle()
+	}()
+
+	<-ctx.Done()
+	if w.Worker.JobCount() != 0 {
+		t.Fatalf("Job was Not updated or did not release")
+	}
+
+	// code coverage
+	w.Job.GetSettings()
+	w.Job.SetEvents(CAN_END)
+	w.Job.Release()
+}
+
+func TestUnlimitedWorker(t *testing.T) {
+	w, _ := NewLocalWorker(0)
+	defer w.Stop()
+	for range UNLIMITED_QUE_SIZE {
+		e := w.AddJob(&CallBackJob{})
+		if e != nil {
+			t.Fatalf("Should be able to add as many jobs as we like!")
+		}
+	}
+	w.SingleRun()
+	t.Log(w.PoolUsageString())
+	w.Stop()
+	// if somehting is not worek
+	w.Start()
+	w.Start()
+	(*w.jobs[0])[0].Release()
 
 }

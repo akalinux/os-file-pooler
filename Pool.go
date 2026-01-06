@@ -30,7 +30,7 @@ func (s *Pool) Stop() error {
 	s.running = false
 
 	for _, worker := range s.workers {
-		worker.Close()
+		worker.Stop()
 	}
 	return nil
 }
@@ -76,7 +76,7 @@ func NewPool(threads int, limit int) (*Pool, error) {
 			return nil, e
 		}
 		t := NewWorker(que, throttle, r, w, memberLimit)
-		go t.Run()
+		go t.Start()
 		workers[i] = t
 	}
 
@@ -136,7 +136,7 @@ func (s *Pool) Start() error {
 func (s *Pool) launchWorker(i int) {
 	slog.Info(fmt.Sprintf("Starting worker: %d", i))
 	w := s.workers[i]
-	w.Run()
+	w.Start()
 	slog.Info(fmt.Sprintf("Stopping worker: %d", i))
 	defer s.workerPanic(w, i)
 }
@@ -145,6 +145,10 @@ func (s *Pool) workerPanic(worker *Worker, id int) {
 	if e := recover(); e != nil {
 		msg := fmt.Sprintf("Thread Pool Panic in worker: %d, eror was: %v", id, e)
 		slog.Error(msg)
-		worker.Close()
+		worker.Stop()
 	}
+}
+
+func (s *Pool) NewUtil() *Util {
+	return &Util{s}
 }

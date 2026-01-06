@@ -4,31 +4,37 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	//"runtime"
 	"unsafe"
+
+	"os/signal"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
 
-func addSignal(set *unix.Sigset_t, sig unix.Signal) {
-	// Signal numbers are 1-indexed. Bit 0 corresponds to signal 1.
-	if sig <= 0 {
-		return
-	}
-	sigNum := uint(sig) - 1
-	// On most 64-bit systems, Val is [16]uint64
-	set.Val[sigNum/64] |= 1 << (sigNum % 64)
-}
-
 func main() {
-	// Block signals using thread-safe PthreadSigmask
+	//runtime.LockOSThread()
+	signals := []syscall.Signal{unix.SIGHUP, unix.SIGINT}
 	sigset := &unix.Sigset_t{}
-	// Manually add signals to the set
-	//addSignal(sigset, unix.SIGINT)
-	//addSignal(sigset, unix.SIGINT)
-	addSignal(sigset, unix.SIGHUP)
+	for _, sig := range signals {
+		// Signal numbers are 1-indexed. Bit 0 corresponds to signal 1.
+		if sig <= 0 {
+			continue
+		}
+		sigNum := uint(sig) - 1
+		pos := sigNum / 64
+
+		var shift uint64 = 1 << (sigNum % 64)
+		fmt.Printf("Sig: %d pos: %d,shift: %d\n", sigNum, pos, shift)
+		sigset.Val[pos] |= shift
+		fmt.Printf("Sig: %d pos: %d,shift: %d resolved %d\n", sigNum, pos, shift, sigset.Val[pos])
+		signal.Ignore(sig)
+	}
 
 	if err := unix.PthreadSigmask(unix.SIG_BLOCK, sigset, nil); err != nil {
-		log.Fatal(err)
+		panic("Could not apply sig mask")
 	}
 
 	// Create signalfd
@@ -38,29 +44,30 @@ func main() {
 	}
 	defer unix.Close(sfd)
 
-	fmt.Println("Waiting for signal...")
+	fmt.Printf("Our pid is: %d\nWaiting for signal...", os.Getppid())
+	r := os.NewFile(uintptr(sfd), "pid pipe")
 
 	// Prepare buffer sized exactly to the struct
 	var info unix.SignalfdSiginfo
-	buf := make([]byte, unsafe.Sizeof(info))
+	size := unsafe.Sizeof(info)
+	buf := make([]byte, size)
 
 	for {
-		n, err := unix.Read(sfd, buf)
+		//n, err := unix.Read(sfd, buf)
+		n, err := r.Read(buf)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if n != int(unsafe.Sizeof(info)) {
+		if n != int(size) {
 			continue
 		}
 
 		// Directly cast the buffer to the struct pointer
 		// This is faster and avoids needing to check endianness
 		info = *(*unix.SignalfdSiginfo)(unsafe.Pointer(&buf[0]))
+		fmt.Printf("Size of size: %d\n", size)
 
-		fmt.Printf("Received signal: %d\n", info.Signo)
-
-		if info.Signo == uint32(unix.SIGINT) || info.Signo == uint32(unix.SIGTERM) {
-			os.Exit(0)
-		}
+		fmt.Printf("\nReceived signal: %d\n", int32(info.Signo))
+		//os.Exit(0)
 	}
 }

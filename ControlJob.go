@@ -51,14 +51,20 @@ func (s *controlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents
 
 	que := s.worker.que
 CTRL_LOOP:
-	for usage, limit := s.worker.LocalPoolUsage(); usage <= limit; {
+	for {
+		if worker.limit != 0 {
+			usage, limit := s.worker.LocalPoolUsage()
+			if usage >= limit {
+				break CTRL_LOOP
+			}
+		}
 		select {
 		case job := <-que:
 			events, t, fd := job.SetPool(worker, now)
 			if events == 0 {
 				if t <= 0 {
 					job.ClearPool(ERR_NO_EVENTS)
-					continue
+					continue CTRL_LOOP
 				}
 				futureTimeOut = s.computeFutureT(futureTimeOut, t)
 				*jobst = append(*jobst, &wjc{Job: job, nextTs: t})
@@ -89,7 +95,7 @@ func (s *controlJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents int16
 // Implemented only for interface compliance.
 func (s *controlJob) SetPool(worker *Worker, now int64) (watchEevents int16, futureTimeOut int64, fd int32) {
 	s.worker = worker
-	s.buffer = make([]byte, 50)
+	s.buffer = make([]byte, max(s.worker.limit, UNLIMITED_QUE_SIZE))
 	watchEevents = CAN_READ
 	futureTimeOut = 0
 	fd = int32(worker.read.Fd())
