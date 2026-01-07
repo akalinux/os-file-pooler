@@ -59,6 +59,7 @@ func (s *CallBackJob) ProcessEvents(currentEvents int16, now int64) (watchEevent
 			nextTs:        -1,
 			events:        s.events,
 			currentEvents: currentEvents,
+			now:           s.worker.now,
 		}
 
 		s.safeEvent(config)
@@ -109,14 +110,17 @@ func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents int1
 			events:  s.events,
 			timeout: s.timeout,
 			error:   os.ErrDeadlineExceeded,
+			now:     s.worker.now,
 		}
 		s.safeEvent(res)
 		NewEvents = res.events
 		TimeOutError = res.error
 		if res.error == nil {
-			futureTimeOut = now + s.timeout
-		} else {
-
+			if s.timeout != 0 {
+				futureTimeOut = now + s.timeout
+			} else if s.events == 0 {
+				TimeOutError = os.ErrDeadlineExceeded
+			}
 		}
 
 	}

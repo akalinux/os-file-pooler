@@ -1,6 +1,9 @@
 package osfp
 
-import "os"
+import (
+	"os"
+	"time"
+)
 
 type CallbackEvent struct {
 	nextTs int64
@@ -14,6 +17,8 @@ type CallbackEvent struct {
 	currentEvents int16
 
 	error error
+
+	now time.Time
 }
 
 // Returns the current error or nil
@@ -72,4 +77,9 @@ func (s *CallbackEvent) PollWrite() {
 // Tells current worker poll both read and write for this job.
 func (s *CallbackEvent) PollReadWrite() {
 	s.events = CAN_RW
+}
+
+// Returns the curren time
+func (s *CallbackEvent) GetNow() time.Time {
+	return s.now
 }

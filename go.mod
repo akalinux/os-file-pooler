@@ -9,6 +9,7 @@ tool (
 
 require (
 	github.com/BurntSushi/toml v1.5.0 // indirect
+	github.com/aptible/supercronic v0.2.41 // indirect
 	github.com/fatih/camelcase v1.0.0 // indirect
 	github.com/fatih/gomodifytags v1.17.1-0.20250423142747-f3939df9aa3c // indirect
 	github.com/fatih/structtag v1.2.0 // indirect

@@ -54,6 +54,7 @@ type Worker struct {
 	nextTs   int64
 	closed   bool
 	locker   sync.RWMutex
+	now      time.Time
 }
 
 func NewLocalWorker(limit int) (worker *Worker, osErr error) {
@@ -183,7 +184,8 @@ func (s *Worker) SingleRun() error {
 }
 
 func (s *Worker) nextState() (currentState byte, nextState byte, now int64, sleep int64) {
-	now = time.Now().UnixMilli()
+	s.now = time.Now()
+	now = s.now.UnixMilli()
 	sleep = -1
 	if s.nextTs > 0 {
 		diff := s.nextTs - now
@@ -336,6 +338,7 @@ func (s *Worker) resolveNextTs(nextTs, futureTs int64) int64 {
 	}
 	return nextTs
 }
+
 func (s *Worker) Stop() error {
 	s.locker.Lock()
 	defer s.locker.Unlock()

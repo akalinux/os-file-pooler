@@ -3,6 +3,7 @@ package osfp
 import (
 	"context"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 )
@@ -657,5 +658,132 @@ func TestUnlimitedWorker(t *testing.T) {
 	w.Start()
 	w.Start()
 	(*w.jobs[0])[0].Release()
+
+}
+
+func TestUtilTimeout(t *testing.T) {
+	w, _ := NewLocalWorker(0)
+	defer w.Stop()
+	u := w.NewUtil()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	count := 0
+	_, e := u.SetTimeout(func() { count++ }, 10)
+	if e != nil {
+		t.Fatalf("Failed to spawn job")
+	}
+	go func() {
+		for count == 0 {
+			w.SingleRun()
+
+		}
+		cancel()
+	}()
+
+	<-ctx.Done()
+
+	if count != 1 {
+		t.Fatalf("Expected: 1, got: %d", count)
+	}
+
+}
+
+func TestUtilInterval(t *testing.T) {
+	w, _ := NewLocalWorker(0)
+	defer w.Stop()
+	u := w.NewUtil()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+
+	now := time.Now().UnixMilli()
+	count := 0
+	_, e := u.SetInterval(func(event *CallbackEvent) {
+		count++
+
+		next := time.Now().UnixMilli()
+		diff := next - now
+		now = next
+		t.Logf("time diff is %d", diff)
+		if count > 1 {
+			t.Log("Rekeasing our timeout")
+			event.Release()
+		}
+	}, 5)
+	if e != nil {
+		t.Fatalf("Failed to spawn job")
+	}
+	go func() {
+		for count < 3 {
+			w.SingleRun()
+			t.Logf("Count is: %d", count)
+			if w.JobCount() == 0 {
+				t.Logf("Have 0 jobs left")
+				break
+			}
+		}
+		defer cancel()
+	}()
+
+	<-ctx.Done()
+
+	if count != 2 {
+		t.Fatalf("Expected: 2, got: %d", count)
+	}
+	if w.JobCount() != 0 {
+		t.Fatalf("Expected: 0, got: %d", w.JobCount())
+	}
+
+}
+
+func TestPid(t *testing.T) {
+	w, _ := NewLocalWorker(0)
+	defer w.Stop()
+	u := w.NewUtil()
+	_, e := u.WatchPid(-1, func() {})
+	if e == nil {
+		t.Fatalf("Should nto create an fd for pid -1")
+	}
+
+	cmd := exec.Command("sleep", "10")
+	e = cmd.Start()
+	if e != nil {
+		t.Skipf("No sleep command")
+		return
+	}
+	defer cmd.Process.Kill()
+	closed := false
+	_, err := u.WatchPid(cmd.Process.Pid, func() {
+		closed = true
+	})
+	if err != nil {
+		t.Fatalf("Failed to create our job? %v", err)
+	}
+
+	noRun := false
+	job, err := u.WatchPid(cmd.Process.Pid, func() {
+		t.Log("This watcher should never run!")
+		noRun = true
+	})
+	if err != nil {
+		t.Fatalf("Failed to create our job? %v", err)
+	}
+	// load our jobs
+	w.SingleRun()
+	w.nextTs = time.Now().UnixMilli()
+	job.Release()
+	job.Release()
+
+	w.SingleRun()
+	if closed {
+		t.Fatalf("Expected this to be open")
+	}
+
+	cmd.Process.Kill()
+	w.SingleRun()
+
+	if !closed {
+		t.Fatalf("Expected this to be closed")
+	}
+	if noRun {
+		t.Fatalf("Watcher was not propery released!")
+	}
 
 }
