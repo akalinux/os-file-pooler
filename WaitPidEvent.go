@@ -6,4 +6,5 @@ type WaitPidEvent struct {
 	Info  *unix.Siginfo
 	Usage *unix.Rusage
 	*CallbackEvent
+	ExitCode int
 }

@@ -749,10 +749,13 @@ func TestWaipid(t *testing.T) {
 		return
 	}
 	defer cmd.Process.Kill()
+	code := -1
 	closed := false
 	_, err := u.WaitPid(cmd.Process.Pid, func(e *WaitPidEvent) {
 		// will not wait becase we know the process has exited all ready!
 		closed = true
+		code = e.ExitCode
+		cmd.Process.Release()
 	})
 	if err != nil {
 		t.Fatalf("Failed to create our job? %v", err)
@@ -780,11 +783,69 @@ func TestWaipid(t *testing.T) {
 	cmd.Process.Kill()
 	w.SingleRun()
 
+	if code != 137 {
+		t.Fatalf("Expected exit code to be 137, got: %d", code)
+	}
 	if !closed {
 		t.Fatalf("Expected this to be closed")
 	}
 	if noRun {
 		t.Fatalf("Watcher was not propery released!")
 	}
+
+	cmd2 := exec.Command("bash", "-c", "sleep 0.01;exit 2")
+	e = cmd2.Start()
+	if e != nil {
+		t.Skipf("ms sleep failed??")
+		return
+	}
+	defer cmd2.Process.Kill()
+
+	closed = false
+	job, err = u.WaitPid(cmd2.Process.Pid,
+		func(e *WaitPidEvent) {
+			code = e.ExitCode
+			closed = true
+			cmd2.Process.Release()
+		},
+	)
+	if err != nil {
+		t.Skipf("Could not watch our child??")
+	}
+	// load the job
+	w.nextTs = time.Now().UnixMilli()
+	w.SingleRun()
+	w.nextTs = time.Now().UnixMilli() + time.Hour.Milliseconds()*2000
+	w.SingleRun()
+	if !closed {
+		t.Fatalf("Process did not exit")
+	}
+	t.Logf("Got exit code: %d", code)
+	if code != 2 {
+		t.Fatalf("Expected exit code to be 2, got: %d", code)
+	}
+
+}
+
+func TestWritePollReader(t *testing.T) {
+	p := createLocalWorker()
+	canWrite := false
+	didTo := false
+	j, _, w := createRJob(func(config *CallbackEvent) {
+		didTo = config.InTimeout()
+		canWrite = config.IsWrite()
+	})
+	job, _ := j.(*CallBackJob)
+	job.SetTimeout(10)
+	job.SetEvents(CAN_RW)
+	defer w.Close()
+	defer p.Stop()
+	p.AddJob(job)
+	p.nextTs = time.Now().UnixMilli()
+	p.SingleRun()
+	p.nextTs = time.Now().UnixMilli() + time.Hour.Milliseconds()*2000
+
+	t.Logf("CanWrite: %v", canWrite)
+	t.Logf("Was Timout: %v", didTo)
 
 }

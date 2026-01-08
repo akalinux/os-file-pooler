@@ -1,15 +1,13 @@
 package osfp
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
+	"github.com/akalinux/os-file-pooler/internal/sec"
 	"github.com/aptible/supercronic/cronexpr"
 	"golang.org/x/sys/unix"
 )
-
-var ERR_SIGNALS_NOT_SET = errors.New("Signals Set")
 
 type Util struct {
 	PoolOrWorkerContainer
@@ -69,6 +67,8 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
 				}
 				pe := &WaitPidEvent{
 					CallbackEvent: event,
+					Usage:         &unix.Rusage{},
+					Info:          &unix.Siginfo{},
 				}
 				defer job.closeFd()
 				defer cb(pe)
@@ -76,6 +76,8 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
 					return
 				}
 				event.error = unix.Waitid(unix.P_PIDFD, pfd, pe.Info, unix.WNOHANG|unix.WEXITED, pe.Usage)
+				pe.ExitCode = sec.GetExitCodeFromSigInfo(pe.Info)
+
 			},
 		},
 	}
