@@ -46,28 +46,36 @@ func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*Call
 	return job, s.AddJob(job)
 }
 
-func (s *Util) WatchPid(pid int, cb func()) (Job, error) {
+func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
 	pfd, err := unix.PidfdOpen(pid, unix.PIDFD_NONBLOCK)
 
 	if err != nil {
 		// no such pid
 		return nil, fmt.Errorf("Failed to Create fd for pid: %d, erro was %w", pid, err)
 	}
-	job := &PidJob{
+
+	var job *WaitPidJob
+	job = &WaitPidJob{
 		pid: pid,
 		fd:  &pfd,
 		CallBackJob: &CallBackJob{
 			fd:     int32(pfd),
 			events: CAN_READ,
 			onEvent: func(event *CallbackEvent) {
+
 				if pfd == -1 {
 					// we have been closed!
 					return
 				}
-				// if we get an event the fd is most likely closed.. time to call it
-				_ = unix.Close(pfd)
-				pfd = -1
-				cb()
+				pe := &WaitPidEvent{
+					CallbackEvent: event,
+				}
+				defer job.closeFd()
+				defer cb(pe)
+				if event.InError() {
+					return
+				}
+				event.error = unix.Waitid(unix.P_PIDFD, pfd, pe.Info, unix.WNOHANG|unix.WEXITED, pe.Usage)
 			},
 		},
 	}

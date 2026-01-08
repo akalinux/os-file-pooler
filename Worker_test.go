@@ -733,11 +733,11 @@ func TestUtilInterval(t *testing.T) {
 
 }
 
-func TestPid(t *testing.T) {
+func TestWaipid(t *testing.T) {
 	w, _ := NewLocalWorker(0)
 	defer w.Stop()
 	u := w.NewUtil()
-	_, e := u.WatchPid(-1, func() {})
+	_, e := u.WaitPid(-1, func(_ *WaitPidEvent) {})
 	if e == nil {
 		t.Fatalf("Should nto create an fd for pid -1")
 	}
@@ -750,7 +750,8 @@ func TestPid(t *testing.T) {
 	}
 	defer cmd.Process.Kill()
 	closed := false
-	_, err := u.WatchPid(cmd.Process.Pid, func() {
+	_, err := u.WaitPid(cmd.Process.Pid, func(e *WaitPidEvent) {
+		// will not wait becase we know the process has exited all ready!
 		closed = true
 	})
 	if err != nil {
@@ -758,7 +759,7 @@ func TestPid(t *testing.T) {
 	}
 
 	noRun := false
-	job, err := u.WatchPid(cmd.Process.Pid, func() {
+	job, err := u.WaitPid(cmd.Process.Pid, func(e *WaitPidEvent) {
 		t.Log("This watcher should never run!")
 		noRun = true
 	})
