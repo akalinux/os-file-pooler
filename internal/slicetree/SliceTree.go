@@ -5,13 +5,16 @@ import (
 	"slices"
 )
 
-type SliceTree[T any] struct {
+type SliceTree[K any, V any] struct {
 
-	// Internally managed slice
-	Slice []T
+	// Internally managed keys slice
+	Keys []K
+
+	// Internally managed values slice
+	Values []V
 
 	// Compare function.
-	Cmp func(a, b T) int
+	Cmp func(a, b K) int
 
 	//  Tells the internals how far to go with indexing, the internals will scan any remaining chunk less than this value.
 	// If set to any number less than 2, scanning is disabled and we will use btree style indexing for everything.
@@ -23,118 +26,126 @@ type SliceTree[T any] struct {
 	Grow int
 
 	// Required non nil value, called when ever a value is overwritten
-	OnOverrite func(oldValue, newValue T)
+	OnOverrite func(key K, oldValue V, newValue V)
 }
 
 func LookString(nextBegin, nextEnd, nextMid, offset int, resolved bool) string {
 	return fmt.Sprintf("nextBegin: %d, nextEnd: %d, nextMid: %d, offset: %d, resolved: %v", nextBegin, nextEnd, nextMid, offset, resolved)
 }
 
-func StubOnOverwrite[T any](old, new T) {}
-func NewSliceTree[T any](size int, cb func(a, b T) int) *SliceTree[T] {
-	return &SliceTree[T]{
-		Slice:      make([]T, 0, size),
+func StubOnOverwrite[K any, V any](key K, oldValue, newValue V) {}
+func NewSliceTree[K any, V any](size int, cb func(a, b K) int) *SliceTree[K, V] {
+	return &SliceTree[K, V]{
+		Keys:       make([]K, 0, size),
+		Values:     make([]V, 0, size),
 		Cmp:        cb,
 		ScanAt:     3,
-		Grow:       1,
-		OnOverrite: StubOnOverwrite[T],
+		Grow:       100,
+		OnOverrite: StubOnOverwrite[K, V],
 	}
 }
 
-func (s *SliceTree[T]) GetMid(size int) int {
+func (s *SliceTree[K, V]) GetMid(size int) int {
 	return (size-2)/2 + size&1
 }
 
-func (s *SliceTree[T]) ClearBefore(v T) []T {
-	return nil
-}
-
-func (s *SliceTree[T]) ClearAfter(v T) []T {
-	return nil
-}
-
-func (s *SliceTree[T]) ClearTo(v T) []T {
-	return nil
-}
-func (s *SliceTree[T]) ClearFrom(v T) []T {
-	return nil
-}
-
-func (s *SliceTree[T]) Remove(v T) bool {
+func (s *SliceTree[K, V]) Remove(k K) bool {
 	return false
 }
 
-func (s *SliceTree[T]) Add(v T) (index int) {
-	total := cap(s.Slice)
+func (s *SliceTree[K, T]) Add(k K, v T) (index int) {
+	total := cap(s.Keys)
 
 	if total == 0 {
 		// 0 size.. just append
-		s.Slice = append(s.Slice, v)
+		s.Keys = append(s.Keys, k)
+		s.Values = append(s.Values, v)
 		return 0
 	}
-	idx, offset := s.GetIndex(v)
-	return s.setIdx(idx, offset, v)
+	idx, offset := s.GetIndex(k)
+	return s.setIdx(idx, offset, k, v)
 }
 
-func (s *SliceTree[T]) setIdx(idx, offset int, v T) (index int) {
-	size := len(s.Slice)
+func (s *SliceTree[K, V]) setIdx(idx, offset int, k K, v V) (index int) {
+	size := len(s.Keys)
 	if offset != 0 {
 		ns := size + 1
 		s.grow(ns)
-		s.Slice = append(s.Slice, v)
+		s.Keys = append(s.Keys, k)
+		s.Values = append(s.Values, v)
 		switch idx {
 		case size:
 			if offset == 1 {
 				// add new value
-				s.Slice = append(s.Slice, v)
+				s.Keys = append(s.Keys, k)
+				s.Values = append(s.Values, v)
 				return ns
 			} else {
 				// move the old value
-				s.Slice = append(s.Slice, s.Slice[idx])
+				s.Keys = append(s.Keys, s.Keys[idx])
+				s.Values = append(s.Values, s.Values[idx])
 				// set the new value
-				s.Slice[idx] = v
+				s.Keys[idx] = k
+				s.Values[idx] = v
 				return idx
 			}
 		case 0:
 			if offset == 1 {
-				copy(s.Slice[2:], s.Slice[1:size])
-				s.Slice[1] = v
+				copy(s.Keys[2:], s.Keys[1:size])
+				s.Keys[1] = k
+				copy(s.Values[2:], s.Values[1:size])
+				s.Values[1] = v
 				return 1
 			} else {
-				copy(s.Slice[1:], s.Slice[0:size])
-				s.Slice[0] = v
+				copy(s.Keys[1:], s.Keys[0:size])
+				s.Keys[0] = k
+				copy(s.Values[1:], s.Values[0:size])
+				s.Values[0] = v
 			}
 			return 0
 		default:
 			index = idx + offset
-			copy(s.Slice[index+1:], s.Slice[index:size])
+			copy(s.Keys[index+1:], s.Keys[index:size])
+			copy(s.Values[index+1:], s.Values[index:size])
 			if offset < 0 {
-				s.Slice[idx] = v
+				s.Keys[idx] = k
+				s.Values[idx] = v
 				return idx
 			} else {
-				s.Slice[index] = v
+				s.Keys[index] = k
+				s.Values[index] = v
 				return index
 			}
 
 		}
 	} else {
-		s.OnOverrite(s.Slice[idx], v)
-		s.Slice[idx] = v
+		ns := idx + 1
+		if size < ns {
+			// empty slice!
+			s.grow(ns)
+			s.Keys = s.Keys[:ns]
+			s.Values = s.Values[:ns]
+		}
+		s.OnOverrite(k, s.Values[idx], v)
+
+		s.Keys[idx] = k
+		s.Values[idx] = v
 		return idx
 	}
 }
 
-func (s *SliceTree[T]) grow(size int) {
-	if cap(s.Slice) < size {
+func (s *SliceTree[K, V]) grow(size int) {
+	if cap(s.Keys) < size {
 
-		s.Slice = slices.Grow(s.Slice, s.Grow)
+		s.Keys = slices.Grow(s.Keys, s.Grow)
+		s.Values = slices.Grow(s.Values, s.Grow)
 	}
 
 }
 
-func (s *SliceTree[T]) GetIndex(v T) (index, offset int) {
+func (s *SliceTree[K, V]) GetIndex(k K) (index, offset int) {
 
-	size := len(s.Slice)
+	size := len(s.Keys)
 	if size == 0 {
 		// set is empty!
 		return 0, 1
@@ -142,19 +153,19 @@ func (s *SliceTree[T]) GetIndex(v T) (index, offset int) {
 	nextMid := s.GetMid(size)
 	if nextMid == -1 {
 		// only one element
-		return 0, s.Cmp(v, s.Slice[0])
+		return 0, s.Cmp(k, s.Keys[0])
 	}
 
 	// well if we get here.. we need to walk the tree
 	nextBegin := 0
-	nextEnd := len(s.Slice) - 1
+	nextEnd := len(s.Keys) - 1
 	var resolved bool
 
 	for {
-		nextBegin, nextEnd, nextMid, offset, resolved = s.ResolveNext(nextBegin, nextEnd, nextMid, v)
+		nextBegin, nextEnd, nextMid, offset, resolved = s.ResolveNext(nextBegin, nextEnd, nextMid, k)
 		if resolved {
 			index = offset + nextMid
-			offset = s.Cmp(v, s.Slice[index])
+			offset = s.Cmp(k, s.Keys[index])
 			break
 		}
 
@@ -163,7 +174,7 @@ func (s *SliceTree[T]) GetIndex(v T) (index, offset int) {
 	return
 }
 
-func (s *SliceTree[T]) LookAhead(begin, end, mid int, v T) (nextBegin, nextEnd, nextMid, offset int, resolved bool) {
+func (s *SliceTree[K, V]) LookAhead(begin, end, mid int, k K) (nextBegin, nextEnd, nextMid, offset int, resolved bool) {
 	nextBegin = mid + 1
 	diff := end - nextBegin
 
@@ -174,20 +185,20 @@ func (s *SliceTree[T]) LookAhead(begin, end, mid int, v T) (nextBegin, nextEnd, 
 		return
 	} else if diff < s.ScanAt {
 		resolved = true
-		nextMid, offset = s.ScanSet(begin, nextEnd, v)
+		nextMid, offset = s.ScanSet(begin, nextEnd, k)
 		return
 	}
 	nextMid = nextBegin + s.GetMid(diff+1)
 	nextEnd = end
-	offset = s.Cmp(s.Slice[nextMid], v)
+	offset = s.Cmp(s.Keys[nextMid], k)
 	resolved = offset == 0
 	return
 }
 
-func (s *SliceTree[T]) ScanSet(begin, end int, v T) (offset, index int) {
+func (s *SliceTree[K, V]) ScanSet(begin, end int, k K) (offset, index int) {
 	for i := begin; i <= end; i++ {
 
-		offset = s.Cmp(v, s.Slice[i])
+		offset = s.Cmp(k, s.Keys[i])
 		index = i
 
 		if offset < 1 {
@@ -198,7 +209,7 @@ func (s *SliceTree[T]) ScanSet(begin, end int, v T) (offset, index int) {
 	return
 }
 
-func (s *SliceTree[T]) LookBehind(begin, end, mid int, v T) (nextBegin, nextEnd, nextMid, offset int, resolved bool) {
+func (s *SliceTree[K, V]) LookBehind(begin, end, mid int, k K) (nextBegin, nextEnd, nextMid, offset int, resolved bool) {
 	nextEnd = mid - 1
 	diff := nextEnd - begin
 
@@ -209,19 +220,19 @@ func (s *SliceTree[T]) LookBehind(begin, end, mid int, v T) (nextBegin, nextEnd,
 		return
 	} else if diff < s.ScanAt {
 		resolved = true
-		nextMid, offset = s.ScanSet(begin, nextEnd, v)
+		nextMid, offset = s.ScanSet(begin, nextEnd, k)
 		return
 	}
 	nextMid = begin + s.GetMid(diff+1)
 	nextBegin = begin
-	offset = s.Cmp(s.Slice[nextMid], v)
+	offset = s.Cmp(s.Keys[nextMid], k)
 	resolved = offset == 0
 	return
 }
 
-func (s *SliceTree[T]) ResolveNext(begin, end, mid int, v T) (nextBegin, nextEnd, nextMid, offset int, resolved bool) {
+func (s *SliceTree[K, V]) ResolveNext(begin, end, mid int, k K) (nextBegin, nextEnd, nextMid, offset int, resolved bool) {
 
-	cmp := s.Cmp(v, s.Slice[mid])
+	cmp := s.Cmp(k, s.Keys[mid])
 	switch cmp {
 	case 0:
 		nextMid = mid
@@ -229,9 +240,9 @@ func (s *SliceTree[T]) ResolveNext(begin, end, mid int, v T) (nextBegin, nextEnd
 		offset = cmp
 		return
 	case -1:
-		nextBegin, nextEnd, nextMid, offset, resolved = s.LookBehind(begin, end, mid, v)
+		nextBegin, nextEnd, nextMid, offset, resolved = s.LookBehind(begin, end, mid, k)
 	case 1:
-		nextBegin, nextEnd, nextMid, offset, resolved = s.LookAhead(begin, end, mid, v)
+		nextBegin, nextEnd, nextMid, offset, resolved = s.LookAhead(begin, end, mid, k)
 	}
 
 	return

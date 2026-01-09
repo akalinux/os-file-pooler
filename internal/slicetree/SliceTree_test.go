@@ -6,7 +6,7 @@ import (
 )
 
 func TestMid(t *testing.T) {
-	s := NewSliceTree(1, func(a, b int) int {
+	s := NewSliceTree[int, int](1, func(a, b int) int {
 		return cmp.Compare(a, b)
 	})
 	if check := s.GetMid(3); check != 1 {
@@ -30,10 +30,10 @@ func TestMid(t *testing.T) {
 }
 
 func TestScanAt(t *testing.T) {
-	s := &SliceTree[int]{
+	s := &SliceTree[int, int]{
 		Cmp:    cmp.Compare[int],
 		ScanAt: 1,
-		Slice:  []int{2, 4, 6, 8, 10},
+		Keys:   []int{2, 4, 6, 8, 10},
 	}
 	offset, index := s.ScanSet(0, 4, 5)
 	if offset != -1 {
@@ -52,12 +52,12 @@ func TestScanAt(t *testing.T) {
 }
 
 func TestLookBehind(t *testing.T) {
-	s := &SliceTree[int]{
+	s := &SliceTree[int, int]{
 		Cmp: cmp.Compare[int],
 		// never Scan!
 		ScanAt: -1,
 		//           0  1  2  3  4   5   6
-		Slice: []int{2, 4, 6, 8, 10, 12, 14},
+		Keys: []int{2, 4, 6, 8, 10, 12, 14},
 	}
 	t.Log("In block 1")
 	nextBegin, nextEnd, nextMid, offset, resolved := s.LookBehind(0, 6, 3, 5)
@@ -91,12 +91,12 @@ func TestLookBehind(t *testing.T) {
 }
 
 func TestLookAhead(t *testing.T) {
-	s := &SliceTree[int]{
+	s := &SliceTree[int, int]{
 		Cmp: cmp.Compare[int],
 		// never Scan!
 		ScanAt: -1,
 		//           0  1  2  3  4   5   6
-		Slice: []int{2, 4, 6, 8, 10, 12, 14},
+		Keys: []int{2, 4, 6, 8, 10, 12, 14},
 	}
 	t.Log("In block 1")
 	nextBegin, nextEnd, nextMid, offset, resolved := s.LookAhead(0, 6, 3, 9)
@@ -131,27 +131,27 @@ func TestLookAhead(t *testing.T) {
 
 func TestGetIn(t *testing.T) {
 
-	s := &SliceTree[int]{
+	s := &SliceTree[int, int]{
 		Cmp: cmp.Compare[int],
 		// never Scan!
 		ScanAt: -1,
 		//           0  1  2  3  4   5   6
-		Slice: []int{2, 4, 6, 8, 10, 12, 14},
+		Keys: []int{2, 4, 6, 8, 10, 12, 14},
 	}
 	index, offset := s.GetIndex(12)
 	t.Logf("Got index: %d, offset: %d", index, offset)
-	if s.Slice[index+offset] != 12 {
+	if s.Keys[index+offset] != 12 {
 		t.Fatalf("Failed to fetchg our indexed value")
 	}
 	index, offset = s.GetIndex(2)
 	t.Logf("Got index: %d, offset: %d", index, offset)
-	if s.Slice[index+offset] != 2 {
+	if s.Keys[index+offset] != 2 {
 		t.Fatalf("Failed to fetchg our indexed value")
 	}
 
 	index, offset = s.GetIndex(14)
 	t.Logf("Got index: %d, offset: %d", index, offset)
-	if s.Slice[index+offset] != 14 {
+	if s.Keys[index+offset] != 14 {
 		t.Fatalf("Failed to fetchg our indexed value")
 	}
 
@@ -162,29 +162,32 @@ func TestGetIn(t *testing.T) {
 }
 
 func TestIdxSet(t *testing.T) {
-	s := NewSliceTree[int](0, cmp.Compare)
+	s := NewSliceTree[int, int](0, cmp.Compare)
 
-	s.Slice = append(s.Slice, 1)
+	t.Log("Setting inital set of 0,0,1,0")
+	expected := []int{1}
+	s.setIdx(0, 0, 1, 0)
+	checkExpected(t, "Set 0", expected, s.Keys)
 
-	expected := []int{1, 2}
-	s.setIdx(0, 1, 2)
-	checkExpected(t, "Set 1", expected, s.Slice)
+	expected = []int{1, 2}
+	s.setIdx(0, 1, 2, 0)
+	checkExpected(t, "Set 1", expected, s.Keys)
 
 	expected = []int{0, 1, 2}
-	s.setIdx(0, -1, 0)
-	checkExpected(t, "Set 2", expected, s.Slice)
+	s.setIdx(0, -1, 0, 0)
+	checkExpected(t, "Set 2", expected, s.Keys)
 
 	expected = []int{0, 1, 2, 4}
-	s.setIdx(2, 1, 4)
-	checkExpected(t, "Set 3", expected, s.Slice)
+	s.setIdx(2, 1, 4, 0)
+	checkExpected(t, "Set 3", expected, s.Keys)
 
 	expected = []int{0, 1, 2, 3, 4}
-	s.setIdx(2, 1, 3)
-	checkExpected(t, "Set 4", expected, s.Slice)
+	s.setIdx(2, 1, 3, 0)
+	checkExpected(t, "Set 4", expected, s.Keys)
 	//                       3
-	s.Slice = []int{0, 1, 2, 4}
-	s.setIdx(3, -1, 3)
-	checkExpected(t, "Set 5", expected, s.Slice)
+	s.Keys = []int{0, 1, 2, 4}
+	s.setIdx(3, -1, 3, 0)
+	checkExpected(t, "Set 5", expected, s.Keys)
 
 }
 
@@ -196,7 +199,7 @@ func checkExpected(t *testing.T, set string, exp, got []int) {
 	for i, check := range exp {
 		t.Logf("id: %d, expected: %d, got %d", i, check, got[i])
 		if got[i] != check {
-			t.Errorf("Missmatch id: %d, expected: %d, got %d", i, check, got[i])
+			t.Fatalf("Missmatch id: %d, expected: %d, got %d", i, check, got[i])
 		}
 	}
 }
