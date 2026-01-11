@@ -50,20 +50,6 @@ func New[K any, V any](cb func(a, b K) int) *SliceTree[K, V] {
 	return NewSliceTree[K, V](100, cb)
 }
 
-func NewFrom[K any, V any](Cmp func(a, b K) int, OnOverrite func(key K, oldValue V, newValue V) V, kv ...*KvSet[K, V]) *SliceTree[K, V] {
-	s := NewSliceTree[K, V](len(kv), Cmp)
-	if s.OnOverWrite == nil {
-		s.OnOverWrite = stubOnOverwrite
-	} else {
-		s.OnOverWrite = OnOverrite
-	}
-
-	for _, i := range kv {
-		s.Put(i.Key, i.Value)
-	}
-	return s
-}
-
 func (s *SliceTree[K, V]) getMid(size int) int {
 	// shift right 1 same sa divide  by 2.. gotta love int maths
 	return (size-2)>>1 + size&1
@@ -79,12 +65,12 @@ func (s *SliceTree[K, V]) Remove(k K) bool {
 
 // Sets the key/vale pair and returns the index id.
 // Comlexity: o(log n)
-func (s *SliceTree[K, T]) Put(k K, v T) (index int) {
+func (s *SliceTree[K, V]) Put(k K, v V) (index int) {
 	total := len(s.Slices)
 
 	if total == 0 {
 		// 0 size.. just append
-		s.Slices = append(s.Slices, &KvSet[K, T]{k, v})
+		s.Slices = append(s.Slices, &KvSet[K, V]{k, v})
 		return 0
 	}
 	idx, offset := s.GetIndex(k)
@@ -95,7 +81,7 @@ func (s *SliceTree[K, T]) Put(k K, v T) (index int) {
 // This lets you bypass the o(log n) update complexity for writing to the same element over and over again.
 // The internals still call s.OnOverWrite for you.
 func (s *SliceTree[K, V]) Set(index int, v V) (status bool) {
-	if index < 0 || len(s.Slices) < index {
+	if index < 0 || len(s.Slices) <= index {
 		return
 
 	}
@@ -180,6 +166,55 @@ func (s *SliceTree[K, V]) clearTo(key K, x int, cb func(a, b int)) {
 	}
 }
 
+func (s *SliceTree[K, V]) clearFrom(key K, x int, cb func(a, b int)) {
+	i, o := s.GetIndex(key)
+	index := i + o + x
+	end := index + 2
+	size := len(s.Slices)
+	if index <= 0 {
+		cb(0, size)
+		s.Slices = s.Slices[:0]
+		return
+	} else if index >= size {
+		cb(0, 0)
+		return
+	}
+	if end > size {
+		end = size
+	}
+
+	cb(index, end)
+	s.Slices = s.Slices[0:index]
+}
+
+func (s *SliceTree[K, V]) ClearFrom(key K) (total int) {
+	s.clearFrom(key, 0, func(a, b int) {
+		total = b - a
+	})
+	return
+}
+
+func (s *SliceTree[K, V]) ClearFromS(key K) (result []*KvSet[K, V]) {
+	s.clearFrom(key, 0, func(a, b int) {
+		result = s.Slices[a:b]
+	})
+	return
+}
+
+func (s *SliceTree[K, V]) ClearAfterS(key K) (result []*KvSet[K, V]) {
+	s.clearFrom(key, +1, func(a, b int) {
+		result = s.Slices[a:b]
+	})
+	return
+}
+
+func (s *SliceTree[K, V]) ClearAfter(key K) (total int) {
+	s.clearFrom(key, 1, func(a, b int) {
+		total = b - a
+	})
+	return
+}
+
 func (s *SliceTree[K, V]) ClearTo(key K) (total int) {
 	s.clearTo(key, 0, func(a, b int) {
 		total = b - a
@@ -196,6 +231,17 @@ func (s *SliceTree[K, V]) ClearBefore(key K) (total int) {
 
 func (s *SliceTree[K, V]) ClearToS(key K) (result []*KvSet[K, V]) {
 	s.clearTo(key, 0, func(a, b int) {
+		total := b - a
+		if total == 0 {
+			return
+		}
+		result = s.Slices[0:b]
+	})
+	return
+}
+
+func (s *SliceTree[K, V]) ClearBeforeS(key K) (result []*KvSet[K, V]) {
+	s.clearTo(key, -1, func(a, b int) {
 		total := b - a
 		if total == 0 {
 			return
@@ -507,4 +553,10 @@ func (s *SliceTree[K, V]) contig(totalKeys int, r iter.Seq2[int, int], cb func(a
 
 		last = idx
 	}
+}
+
+func (s *SliceTree[K, V]) ThreadSafe() bool { return false }
+
+func (s *SliceTree[K, V]) ToThreadSafe() (OrderedMap[K, V], bool) {
+	return nil, false
 }
