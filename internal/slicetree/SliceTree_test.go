@@ -105,23 +105,23 @@ func TestIdxSet(t *testing.T) {
 
 	t.Log("Setting inital set of 0,0,1,0")
 	expected := []int{1}
-	s.setIdx(0, 0, 1, 0)
+	s.SetIndex(0, 0, 1, 0)
 	checkExpected(t, "Set 0", expected, s.Slices)
 
 	expected = []int{1, 2}
-	s.setIdx(0, 1, 2, 0)
+	s.SetIndex(0, 1, 2, 0)
 	checkExpected(t, "Set 1", expected, s.Slices)
 
 	expected = []int{0, 1, 2}
-	s.setIdx(0, -1, 0, 0)
+	s.SetIndex(0, -1, 0, 0)
 	checkExpected(t, "Set 2", expected, s.Slices)
 
 	expected = []int{0, 1, 2, 4}
-	s.setIdx(2, 1, 4, 0)
+	s.SetIndex(2, 1, 4, 0)
 	checkExpected(t, "Set 3", expected, s.Slices)
 
 	expected = []int{0, 1, 2, 3, 4}
-	s.setIdx(2, 1, 3, 0)
+	s.SetIndex(2, 1, 3, 0)
 	checkExpected(t, "Set 4", expected, s.Slices)
 	// found a bug freom this test set
 	s.Slices = []*KvSet[int, int]{
@@ -130,7 +130,7 @@ func TestIdxSet(t *testing.T) {
 		{2, 0},
 		{4, 0},
 	}
-	s.setIdx(3, -1, 3, 0)
+	s.SetIndex(3, -1, 3, 0)
 	checkExpected(t, "Set 5", expected, s.Slices)
 
 }
@@ -496,4 +496,155 @@ func contigCheck(t *testing.T, name string, exp [][]int, f *SliceTree[int, any])
 			t.Fatalf("Bad End, on set: %d, expected: %d, got %d", i, r[1], got[i][1])
 		}
 	}
+}
+
+func TestClearTo(t *testing.T) {
+	clearTesting(t, "Delete from mid",
+		3, // total keys, 0,1,2
+		1, // delete to
+		2, // total removed
+		[]int{2},
+	)
+	clearTesting(t, "Delete to end",
+		3, // total keys, 0,1,2
+		2, // delete to
+		3, // total removed
+		[]int{},
+	)
+
+	clearTesting(t, "Delete before the start",
+		3,  // total keys, 0,1,2
+		-1, // delete to
+		0,  // total removed
+		[]int{0, 1, 2},
+	)
+	clearTesting(t, "Delete after the end",
+		3, // total keys, 0,1,2
+		3, // delete to
+		3, // total removed
+		[]int{},
+	)
+}
+
+func TestClearToS(t *testing.T) {
+	clearTestingS(t, "Delete from mid",
+		3,           // total keys, 0,1,2
+		1,           // delete to
+		[]int{0, 1}, // total removed
+		[]int{2},
+	)
+	clearTestingS(t, "Delete to end",
+		3,              // total keys, 0,1,2
+		2,              // delete to
+		[]int{0, 1, 2}, // total removed
+		[]int{},
+	)
+
+	clearTestingS(t, "Delete before the start",
+		3,  // total keys, 0,1,2
+		-1, // delete to
+		[]int{},
+		[]int{0, 1, 2},
+	)
+	clearTestingS(t, "Delete after the end",
+		3, // total keys, 0,1,2
+		3, // delete to
+		[]int{0, 1, 2},
+		[]int{},
+	)
+}
+
+func clearTestingS(t *testing.T, test string, keys, to int, removed []int, res []int, opt ...int) {
+	t.Logf("Running test set: [%s]", test)
+	s := New[int, int](cmp.Compare)
+	for i := range keys {
+		t.Logf("  Adding key: %d", i)
+		s.Put(i, 0)
+	}
+	for i, kv := range s.Slices {
+		t.Logf("  Inital Row: %d, value: %d", i, kv.Key)
+	}
+	check := s.ClearToS(to)
+
+	for i, kv := range s.Slices {
+		t.Logf("  Final Row: %d, value: %d", i, kv.Key)
+	}
+	if len(check) != len(removed) {
+		t.Fatalf("Expected delete size of: %d, got: %d", len(removed), len(check))
+	}
+	for i, k := range removed {
+		if check[i].Key != k {
+			t.Fatalf("Bad delete record, expected: %d, got %d for row: %d", k, check[i].Key, i)
+		}
+	}
+	if len(s.Slices) != len(res) {
+		t.Fatalf("Expected s.Slices len: %d, got %d", len(res), len(s.Slices))
+	}
+	for i, k := range res {
+		if s.Slices[i].Key != k {
+			t.Fatalf("Bad internal state, for record: %d, expected: %d, got: %d", i, k, s.Slices[i].Key)
+		}
+	}
+
+}
+
+func clearTesting(t *testing.T, test string, keys, to, removed int, res []int, opt ...int) {
+	t.Logf("Running test set: [%s]", test)
+	s := New[int, int](cmp.Compare)
+	for i := range keys {
+		t.Logf("  Adding key: %d", i)
+		s.Put(i, 0)
+	}
+	for i, kv := range s.Slices {
+		t.Logf("  Inital Row: %d, value: %d", i, kv.Key)
+	}
+	var check int
+	if len(opt) == 0 {
+		t.Logf("Calling ClearTo")
+		check = s.ClearTo(to)
+	} else {
+		t.Logf("Calling ClearBefore")
+		check = s.ClearBefore(to)
+	}
+
+	for i, kv := range s.Slices {
+		t.Logf("  Final Row: %d, value: %d", i, kv.Key)
+	}
+	if check != removed {
+		t.Fatalf("Expected delete size of: %d, got: %d", removed, check)
+	}
+	if len(s.Slices) != len(res) {
+		t.Fatalf("Expected s.Slices len: %d, got %d", len(res), len(s.Slices))
+	}
+	for i, k := range res {
+		if s.Slices[i].Key != k {
+			t.Fatalf("Bad internal state, for record: %d, expected: %d, got: %d", i, k, s.Slices[i].Key)
+		}
+	}
+
+}
+
+func TestClearBefore(t *testing.T) {
+	clearTesting(t, "Delete from mid",
+		3, // total keys, 0,1,2
+		1, // delete to
+		1, // total removed
+		[]int{1, 2},
+		1,
+	)
+	clearTesting(t, "Delete before the start",
+		3,  // total keys, 0,1,2
+		-1, // delete to
+		0,  // total removed
+		[]int{0, 1, 2},
+		1,
+	)
+	clearTesting(t, "Delete after the end",
+		3, // total keys, 0,1,2
+		4, // delete to
+		3, // total removed
+		[]int{},
+		1,
+	)
+
 }
