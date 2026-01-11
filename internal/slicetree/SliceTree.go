@@ -187,6 +187,7 @@ func (s *SliceTree[K, V]) clearFrom(key K, x int, cb func(a, b int)) {
 	s.Slices = s.Slices[0:index]
 }
 
+// ClearFrom implements [OrderedMap].
 func (s *SliceTree[K, V]) ClearFrom(key K) (total int) {
 	s.clearFrom(key, 0, func(a, b int) {
 		total = b - a
@@ -194,6 +195,7 @@ func (s *SliceTree[K, V]) ClearFrom(key K) (total int) {
 	return
 }
 
+// ClearFromS implements [OrderedMap].
 func (s *SliceTree[K, V]) ClearFromS(key K) (result []*KvSet[K, V]) {
 	s.clearFrom(key, 0, func(a, b int) {
 		result = s.Slices[a:b]
@@ -201,13 +203,15 @@ func (s *SliceTree[K, V]) ClearFromS(key K) (result []*KvSet[K, V]) {
 	return
 }
 
+// ClearAfterS implements [OrderedMap].
 func (s *SliceTree[K, V]) ClearAfterS(key K) (result []*KvSet[K, V]) {
-	s.clearFrom(key, +1, func(a, b int) {
+	s.clearFrom(key, 1, func(a, b int) {
 		result = s.Slices[a:b]
 	})
 	return
 }
 
+// ClearAfter implements [OrderedMap].
 func (s *SliceTree[K, V]) ClearAfter(key K) (total int) {
 	s.clearFrom(key, 1, func(a, b int) {
 		total = b - a
@@ -215,6 +219,7 @@ func (s *SliceTree[K, V]) ClearAfter(key K) (total int) {
 	return
 }
 
+// ClearTo implements [OrderedMap].
 func (s *SliceTree[K, V]) ClearTo(key K) (total int) {
 	s.clearTo(key, 0, func(a, b int) {
 		total = b - a
@@ -222,6 +227,7 @@ func (s *SliceTree[K, V]) ClearTo(key K) (total int) {
 	return
 }
 
+// ClearBefore implements [OrderedMap].
 func (s *SliceTree[K, V]) ClearBefore(key K) (total int) {
 	s.clearTo(key, -1, func(a, b int) {
 		total = b - a
@@ -229,6 +235,7 @@ func (s *SliceTree[K, V]) ClearBefore(key K) (total int) {
 	return
 }
 
+// ClearToS implements [OrderedMap].
 func (s *SliceTree[K, V]) ClearToS(key K) (result []*KvSet[K, V]) {
 	s.clearTo(key, 0, func(a, b int) {
 		total := b - a
@@ -240,6 +247,7 @@ func (s *SliceTree[K, V]) ClearToS(key K) (result []*KvSet[K, V]) {
 	return
 }
 
+// ClearBeforeS implements [OrderedMap].
 func (s *SliceTree[K, V]) ClearBeforeS(key K) (result []*KvSet[K, V]) {
 	s.clearTo(key, -1, func(a, b int) {
 		total := b - a
@@ -458,11 +466,11 @@ func (s *SliceTree[K, V]) All() iter.Seq2[K, V] {
 //
 // Complexity:
 //
-// In truth, the complexity drops sharply:
-//   - if you are trying to delete the same key multiple times,
-//   - many keys you are trying to temove do not exist,
-//
 // Worst case shown (Per key removed or k): o(log(n) + o(log k) + 2*k).
+//
+// In truth, the real world complexity is drastically reduced by the following:
+//   - Deletetion of duplicate keys.
+//   - Keys being deleted do not exist.
 //
 // The complexity is defined by the steps required:
 //   - Index lookups: o(log n) +k
@@ -514,6 +522,17 @@ func (s *SliceTree[K, V]) unsafeIter(keys []K) iter.Seq2[int, int] {
 	}
 }
 
+func KvIter[K any, V any](set []*KvSet[K, V]) iter.Seq2[K, V] {
+
+	return func(yield func(K, V) bool) {
+		for _, row := range set {
+			if !yield(row.Key, row.Value) {
+				return
+			}
+		}
+	}
+}
+
 func (s *SliceTree[K, V]) rangedel(a, b int) {
 	s.Slices = slices.Delete(s.Slices, a, b+1)
 }
@@ -555,8 +574,30 @@ func (s *SliceTree[K, V]) contig(totalKeys int, r iter.Seq2[int, int], cb func(a
 	}
 }
 
+// ThreadSafe implements [OrderedMap]
 func (s *SliceTree[K, V]) ThreadSafe() bool { return false }
 
-func (s *SliceTree[K, V]) ToThreadSafe() (OrderedMap[K, V], bool) {
-	return nil, false
+// ClearBeforeI implements [OrderedMap]
+func (s *SliceTree[K, V]) ClearBeforeI(key K) iter.Seq2[K, V] {
+	return KvIter(s.ClearBeforeS(key))
+}
+
+// ClearFromI implements [OrderedMap]
+func (s *SliceTree[K, V]) ClearFromI(key K) iter.Seq2[K, V] {
+	return KvIter(s.ClearFromS(key))
+}
+
+// ClearAfterI implements [OrderedMap]
+func (s *SliceTree[K, V]) ClearAfterI(key K) iter.Seq2[K, V] {
+	return KvIter(s.ClearAfterS(key))
+}
+
+// ClearAfterI implements [OrderedMap]
+func (s *SliceTree[K, V]) ClearToI(key K) iter.Seq2[K, V] {
+	return KvIter(s.ClearToS(key))
+}
+
+// Returns a thread safe instnace from the current instance.
+func (s *SliceTree[K, V]) ToTs() OrderedMap[K, V] {
+	return &ThreadSafeOrderedMap[K, V]{Tree: s}
 }

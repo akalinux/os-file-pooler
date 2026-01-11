@@ -579,15 +579,20 @@ func clearTestingS(t *testing.T, test string, keys, to int, removed []int, res [
 	if len(opt) == 0 {
 		t.Logf("Using ClearToS")
 		check = s.ClearToS(to)
+		// calling again should do nothing
+		s.ClearToS(to)
 	} else if opt[0] == 1 {
 		t.Logf("Using ClearFromS")
 		check = s.ClearFromS(to)
+		s.ClearFromS(to)
 	} else if opt[0] == 2 {
 		t.Logf("Using ClearBeforeS")
 		check = s.ClearBeforeS(to)
+		s.ClearBeforeS(to)
 	} else if opt[0] == 3 {
 		t.Logf("Using ClearAfterS")
 		check = s.ClearAfterS(to)
+		s.ClearAfterS(to)
 	}
 
 	for i, kv := range s.Slices {
@@ -845,6 +850,7 @@ func TestSet(t *testing.T) {
 
 func TestCast(t *testing.T) {
 	s := New[int, int](cmp.Compare)
+
 	func(m OrderedMap[int, int]) {
 		t.Log("If we get here, then the object conforms to the interface")
 		if m.ThreadSafe() {
