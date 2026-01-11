@@ -1,6 +1,6 @@
 // The slicetree Package, yet another sorted map in go.
 //
-// The slicetree package implements very light wight btree, via managing a single internal slice.  This makes iteration a complexity
+// The slicetree package implements very light wieght btree, via an internal slice.  This makes iteration a complexity
 // of o(n), IE you just walk the array.
 //
 // Lookups for both reads and writes are always a fixed complexity: o(log n).
@@ -302,9 +302,7 @@ func (s *SliceTree[K, V]) GetIndex(k K) (index, offset int) {
 			offset = s.Cmp(k, s.Slices[index].Key)
 			break
 		}
-
 	}
-
 	return
 }
 
