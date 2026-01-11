@@ -1,11 +1,9 @@
 // The slicetree Package, yet another sorted map in go.
 //
-// The slicetree package implements very light wieght btree, via an internal slice.  This makes iteration a complexity
-// of o(n), IE you just walk the array.
+// The slicetree package implements very light minital btree, via an internal slice.
 //
 // Lookups for both reads and writes are always a fixed complexity: o(log n).
-// The internals manage Puts by splicing the slice, without the use of a temporary slice.  So the memory cost is fixed,
-// unless the internal slice needs to bet Grown.
+// The internals manage Puts by splicing the slice, without the use of a temporary slice.
 package slicetree
 
 import (
