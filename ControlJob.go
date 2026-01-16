@@ -118,14 +118,20 @@ func (s *controlJob) ClearPool(_ error) {
 type controlJob struct {
 	worker *Worker
 	buffer []byte
+	jobId  int64
 }
 
 func NewControlJob() *controlJob {
 	return &controlJob{
 		buffer: make([]byte, 50),
+		jobId:  nextJobId(),
 	}
 }
 
 func (s *controlJob) Release() error {
 	return nil
+}
+
+func (s *controlJob) JobId() int64 {
+	return s.jobId
 }

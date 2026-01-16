@@ -16,6 +16,7 @@ type CallBackJob struct {
 	fd      int32
 	Lock    sync.RWMutex
 	ran     bool
+	jobId   int64
 }
 
 func NewJobFromFdT(fd int32, watchEvents int16, timeout int64, cb func(*CallbackEvent)) (job *CallBackJob) {
@@ -24,6 +25,7 @@ func NewJobFromFdT(fd int32, watchEvents int16, timeout int64, cb func(*Callback
 		timeout: timeout,
 		fd:      fd,
 		events:  watchEvents,
+		jobId:   nextJobId(),
 	}
 
 	return
@@ -197,4 +199,8 @@ func (s *CallBackJob) SetCallback(cb func(*CallbackEvent)) {
 	s.Lock.Lock()
 	defer s.Lock.Unlock()
 	s.onEvent = cb
+}
+
+func (s *CallBackJob) JobId() int64 {
+	return s.jobId
 }

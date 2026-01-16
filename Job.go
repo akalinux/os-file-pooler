@@ -1,5 +1,21 @@
 package osfp
 
+import "sync/atomic"
+
+// Internal job sequence id
+var jobIdSeq *int64
+
+func init() {
+	var i int64 = 0
+	jobIdSeq = &i
+}
+
+const JOB_ID_ADD_ONE int64 = 1
+
+func nextJobId() int64 {
+	return atomic.AddInt64(jobIdSeq, JOB_ID_ADD_ONE)
+}
+
 // This is the core Job interface used by the Worker internals.
 //
 // # Events
@@ -44,4 +60,7 @@ type Job interface {
 	ClearPool(error)
 
 	Release() (message error)
+
+	// Returns the internal id for the job
+	JobId() int64
 }
