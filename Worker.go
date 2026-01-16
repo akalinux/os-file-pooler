@@ -11,6 +11,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// Need to upgrade to epoll7:
+// https://man7.org/linux/man-pages/man7/epoll.7.html
+// https://pkg.go.dev/golang.org/x/sys/unix#EpollCreate
+
 const EPOLL_RETRY_TIMEOUT = time.Millisecond * 10
 const UNLIMITED_QUE_SIZE = 100
 
