@@ -11,10 +11,10 @@ type CallbackEvent struct {
 	// internal timeout config
 	timeout int64
 	// Update this value to change what events we poll
-	events int16
+	events uint32
 
 	// Current events
-	currentEvents int16
+	currentEvents uint32
 
 	error error
 

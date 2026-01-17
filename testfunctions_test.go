@@ -2,12 +2,9 @@ package osfp
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"testing"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 const TEST_STRING = "this is a test"
@@ -19,47 +16,9 @@ type WorkerTestSet struct {
 	Worker *Worker
 }
 
-func (s *Worker) getWorkerDebuStates() (fdc, fdn, jobc, jobn int, state byte) {
-	if s.fds[0] == s.fds[1] {
-		panic("Fds current and next are the same instance!")
-	}
-	if s.jobs[0] == s.jobs[1] {
-		panic("Fds current and next are the same instance!")
-	}
-	fdc = len((*s.fds[0]))
-	fdn = len((*s.fds[1]))
-	jobc = len((*s.jobs[0]))
-	jobn = len((*s.jobs[1]))
-	state = s.state
-	return
-}
-
-func (s *Worker) WorkerStateDebugString() string {
-	cf, nf, cj, nj, state := s.getWorkerDebuStates()
-	return fmt.Sprintf("State: %d, fds[0]:%d, fds[1];%d, jobs[0]:%d, jobs[1]:%d", state, cf, nf, cj, nj)
-}
-
 func (s *WorkerTestSet) WorkerCleanup() {
 	s.w.Close()
 	s.Worker.Stop()
-}
-
-// For internal use only!!
-// This method exists mostly to make unit testing easier
-func (s *Worker) forceAddJobToWorker(job Job) (futureTimeOut int64) {
-	s.throttle <- struct{}{}
-	now := time.Now().UnixMilli()
-	var watchEevents int16
-	var fd int32
-	watchEevents, futureTimeOut, fd = job.SetPool(s, now)
-	p := unix.PollFd{Fd: fd, Events: watchEevents}
-	for i := range 2 {
-		jobs := s.jobs[i]
-		*jobs = append(*jobs, &wjc{Job: job})
-		fds := s.fds[i]
-		*fds = append(*fds, p)
-	}
-	return
 }
 
 func Pipe() (r, w *os.File) {

@@ -75,7 +75,13 @@ func NewPool(threads int, limit int) (*Pool, error) {
 			res.Stop()
 			return nil, e
 		}
-		t := NewWorker(que, throttle, r, w, memberLimit)
+		t, e := NewWorker(que, throttle, r, w, memberLimit)
+		if e != nil {
+			res.Stop()
+			w.Close()
+			return nil, e
+		}
+
 		go t.Start()
 		workers[i] = t
 	}
