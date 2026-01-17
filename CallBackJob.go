@@ -204,3 +204,7 @@ func (s *CallBackJob) SetCallback(cb func(*CallbackEvent)) {
 func (s *CallBackJob) JobId() int64 {
 	return s.jobId
 }
+
+func (s *CallBackJob) Fd() int32 {
+	return s.fd
+}

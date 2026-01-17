@@ -9,19 +9,6 @@ import (
 // Used to shutdown a new Job, when no events were aded
 var ERR_NO_EVENTS = errors.New("No watchEvents returned")
 
-func (s *controlJob) computeFutureT(f, t int64) (futureTimeOut int64) {
-	if f > 0 {
-
-		if f > t {
-			futureTimeOut = t
-		}
-	} else {
-
-		futureTimeOut = t
-	}
-	return
-}
-
 func (s *controlJob) ProcessEvents(currentEvents int16, now int64) (watchEevents int16, futureTimeOut int64, EventError error) {
 	worker := s.worker
 	if currentEvents&IN_ERROR != 0 {
@@ -66,10 +53,12 @@ CTRL_LOOP:
 					job.ClearPool(ERR_NO_EVENTS)
 					continue CTRL_LOOP
 				}
-				futureTimeOut = s.computeFutureT(futureTimeOut, t)
+				//futureTimeOut = computeFutureT(futureTimeOut, t)
 				*jobst = append(*jobst, &wjc{Job: job, nextTs: t})
+				futureTimeOut = t
 			} else {
-				futureTimeOut = s.computeFutureT(futureTimeOut, t)
+				//futureTimeOut = computeFutureT(futureTimeOut, t)
+				futureTimeOut = t
 				p := unix.PollFd{
 					Fd:     int32(fd),
 					Events: events,
@@ -119,11 +108,16 @@ type controlJob struct {
 	worker *Worker
 	buffer []byte
 	jobId  int64
+	fd     int32
+}
+
+func (s *controlJob) Fd() int32 {
+	return s.fd
 }
 
 func NewControlJob() *controlJob {
 	return &controlJob{
-		buffer: make([]byte, 50),
+		buffer: make([]byte, 0xff),
 		jobId:  nextJobId(),
 	}
 }

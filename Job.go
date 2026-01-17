@@ -63,4 +63,7 @@ type Job interface {
 
 	// Returns the internal id for the job
 	JobId() int64
+
+	// unix fd
+	Fd() int32
 }

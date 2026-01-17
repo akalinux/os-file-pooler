@@ -115,6 +115,10 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 	return this
 }
 
+func (s *Worker) addPoll(p *unix.PollFd) {
+
+}
+
 // Returns the number of active jobs in the local pool.
 func (s *Worker) JobCount() (JobCount int) {
 	JobCount, _ = s.LocalPoolUsage()
