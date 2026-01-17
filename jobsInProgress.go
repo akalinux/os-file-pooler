@@ -52,7 +52,7 @@ func (s *jobsInProgress) ClearJob(job Job) {
 
 }
 func (s *jobsInProgress) RunTimeouts(now int64) {
-	for to, jobs := range s.timeouts.RemoveBetweenKV(-1, now, omap.FIRST_KEY) {
+	for to, jobs := range s.timeouts.RemoveBetweenKV(now, -1, omap.LAST_KEY) {
 		for _, job := range jobs {
 			w, ft, e := job.CheckTimeOut(now, to)
 			if e != nil {
