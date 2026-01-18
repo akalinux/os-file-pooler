@@ -1,6 +1,7 @@
 package osfp
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -57,13 +58,14 @@ type Worker struct {
 	limit    int
 	epfd     int
 	fdjobs   map[int32]*wjc
-	timeouts omap.SliceTree[int64, map[int64]Job]
+	timeouts *omap.SliceTree[int64, map[int64]Job]
 	jobs     map[int64]*wjc
 	nextTs   int64
 	closed   bool
 	locker   sync.RWMutex
 	now      time.Time
 	events   []unix.EpollEvent
+	ctrl     *controlJob
 }
 
 func NewLocalWorker(limit int) (worker *Worker, osErr error) {
@@ -111,15 +113,20 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 		read:     read,
 		write:    write,
 		epfd:     epfd,
-		events:   make([]unix.EpollEvent, 0, limit+1),
+		events:   make([]unix.EpollEvent, limit+1),
+		fdjobs:   make(map[int32]*wjc, limit+1),
+		jobs:     make(map[int64]*wjc, limit+1),
+		timeouts: omap.NewSliceTree[int64, map[int64]Job](limit, cmp.Compare),
 	}
+
 	cg := newControlJob()
+	s.ctrl = cg
 	_, _, jfd := cg.SetPool(s, time.Now().UnixMilli())
 	e = unix.EpollCtl(epfd, unix.EPOLL_CTL_ADD, int(jfd), &unix.EpollEvent{Events: uint32(CAN_READ), Fd: jfd})
 	if e != nil {
 		// give up and close here
 		unix.Close(epfd)
-
+		s.closed = true
 		write.Close()
 		cg.ClearPool(ERR_SHUTDOWN)
 		return nil, e
@@ -191,6 +198,7 @@ func (s *Worker) SingleRun(t ...int64) error {
 		s.nextTs = t[0]
 	}
 	now, sleep := s.nextState()
+	fmt.Printf("enter do poll\n")
 	active, e := s.doPoll(sleep)
 	if e != nil {
 		return e
@@ -198,6 +206,7 @@ func (s *Worker) SingleRun(t ...int64) error {
 	if active == 0 {
 		return nil
 	}
+	fmt.Printf("Process next\n")
 	s.processNextSet(now, s.nextTs, active)
 
 	return nil
@@ -228,19 +237,26 @@ func (s *Worker) doPoll(sleep int64) (active int, err error) {
 func (s *Worker) processNextSet(now int64, StarterNextTs int64, active int) {
 	var nextTs int64 = StarterNextTs
 
-	for i := 1; i < active; i++ {
+	fmt.Printf("ACtive count: %d\n", active)
+	for i := 0; i < active; i++ {
 		events := s.events[i].Events
 		fd := s.events[i].Fd
 
-		job := s.fdjobs[fd]
+		job, ok := s.fdjobs[fd]
+		if !ok {
+			panic("Wooks")
+		}
+		fmt.Printf("Got job: %d\n", job.JobId())
 		check := events & job.wanted
 		if check == 0 {
 			// if we get here, we need to check for errors dirrectly
 			if events&IN_EOF != 0 {
 				// best guess is EOF.. may be a few others
 				// like io.ErrClosedPipe
+				fmt.Printf("error Closing EOF\n")
 				s.clearJob(job, io.EOF)
 			} else if events&IN_ERROR != 0 {
+				fmt.Printf("error Closing ERROR\n")
 				s.clearJob(job, io.ErrUnexpectedEOF)
 			}
 			// start our error check states
@@ -249,6 +265,7 @@ func (s *Worker) processNextSet(now int64, StarterNextTs int64, active int) {
 		}
 		w, t, e := job.ProcessEvents(check, now)
 		if e != nil || (w == 0 && t <= 0) {
+			fmt.Printf("no events ,no timeout, Closing\n")
 			s.clearJob(job, e)
 			continue
 		}

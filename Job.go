@@ -1,12 +1,14 @@
 package osfp
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+)
 
 // Internal job sequence id
 var jobIdSeq *int64
 
 func init() {
-	var i int64 = 0
+	var i int64 = -1
 	jobIdSeq = &i
 }
 

@@ -8,6 +8,17 @@ import (
 	"time"
 )
 
+func TestJobId(t *testing.T) {
+
+	if nextJobId() == nextJobId() {
+		t.Fatalf("exepected job id to change")
+	}
+	if nextJobId() == nextJobId() {
+		t.Fatalf("exepected job id to change")
+	}
+	t.Logf("New job id: %d", nextJobId())
+}
+
 func TestNewWorker(t *testing.T) {
 
 	w, e := NewStandAloneWorker()
@@ -28,14 +39,11 @@ func TestNewWorker(t *testing.T) {
 	w.throttle <- struct{}{}
 	w.que <- job
 	w.write.Write([]byte{1})
-	(*w.jobs[0])[0].ProcessEvents(0, 0)
-
-	// code coveratge.. for noop function
-	(*w.jobs[0])[0].CheckTimeOut(0, 0)
+	w.ctrl.CheckTimeOut(0, 0)
 
 	// should not throw errors
 	e = w.Stop()
-	(*w.jobs[0])[0].ProcessEvents(0, 0)
+	w.ctrl.ProcessEvents(0, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 
 	go func() {
@@ -46,7 +54,7 @@ func TestNewWorker(t *testing.T) {
 
 	e = w.Stop()
 	if e != ERR_SHUTDOWN {
-		t.Fatalf("Should have gotten a shutdown error!")
+		t.Fatalf("Should have gotten a shutdown error, got: %v", e)
 	}
 	e = w.AddJob(nil)
 	if e != ERR_SHUTDOWN {
@@ -62,7 +70,10 @@ func TestNewWorker(t *testing.T) {
 	}
 
 	// will crash if the code is broken..
-	(*w.jobs[0])[0].ProcessEvents(0, 0)
+	_, _, e = w.ctrl.ProcessEvents(0, 0)
+	if e != ERR_SHUTDOWN {
+		t.Fatalf("error should be in shutdown mode!")
+	}
 
 }
 func TestSimulateOsError(t *testing.T) {
@@ -73,49 +84,6 @@ func TestSimulateOsError(t *testing.T) {
 	if e == nil {
 		t.Fatalf("Os simulation failed?")
 	}
-}
-
-func TestNextState(t *testing.T) {
-	s := createLocalWorker()
-	defer s.Stop()
-	lstate := s.state
-	job, _, w := createRJob(nil)
-	s.forceAddJobToWorker(job)
-	defer w.Close()
-	currentState, nextState, now, sleep := s.nextState()
-	if lstate != currentState {
-		t.Error("current state, should match state")
-		return
-	}
-	if s.state != nextState {
-		t.Errorf("internal state should now be nextState, but it is not?? got: %d, expected: %d", s.state, nextState)
-		return
-	}
-
-	if now <= 0 {
-		t.Error("Now should be curent time in ms???")
-		return
-	}
-
-	if sleep != -1 {
-		t.Error("inital sleep should always be -1")
-	}
-	// Check current slice sizes
-	fdc, fdn, jobc, jobn, _ := s.getWorkerDebuStates()
-	t.Log(s.WorkerStateDebugString())
-	if fdc != 2 {
-		t.Fatalf("bad fdc size, Expected: 2 ,got: %d", fdc)
-	}
-	if fdn != 1 {
-		t.Fatalf("bad fdn size, Expected: 1 ,got: %d", fdn)
-	}
-	if jobc != 2 {
-		t.Fatalf("bad jobc size, Expected: 2 ,got: %d", jobc)
-	}
-	if jobn != 1 {
-		t.Fatalf("bad jobn size, Expected: 1 ,got: %d", jobn)
-	}
-
 }
 
 func TestAddJob(t *testing.T) {
@@ -155,10 +123,8 @@ func TestAddJob(t *testing.T) {
 
 	if s.JobCount() != 1 {
 
-		cf, nf, cj, nj, state := s.getWorkerDebuStates()
+		t.Fatalf("Job count should be 1.. if not something went wrong!\n")
 
-		t.Fatalf("Job count should be 1.. if not something went wrong!\n"+
-			"  State: %d\n  fds[0]:%d, fds[1];%d jobs[0]:%d, jobs[1]:%d\n", state, cf, nf, cj, nj)
 	}
 	t.Log(s.PoolUsageString())
 	err = s.AddJob(job)
@@ -180,8 +146,6 @@ func TestClearJob(t *testing.T) {
 	if e == nil {
 		t.Fatalf("Did not get our EOF event?")
 	}
-	t.Log(w.Worker.WorkerStateDebugString())
-
 }
 
 func TestWorkerJobRead(t *testing.T) {
@@ -263,7 +227,6 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 			w.Worker.Stop()
 		}
 	}
-	t.Logf("%s\n", w.Worker.WorkerStateDebugString())
 	go func() {
 		w.Worker.Start()
 		defer cancel()
@@ -271,7 +234,6 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 	<-ctx.Done()
 
 	t.Logf("Our diff was: %d", diff)
-	t.Logf("%s\n", w.Worker.WorkerStateDebugString())
 	if diff == 0 {
 		t.Error("Time diff is zero")
 	}
@@ -314,7 +276,6 @@ func TestAddFdTimeout(t *testing.T) {
 	<-ctx.Done()
 
 	t.Logf("Our diff was: %d", diff)
-	t.Logf("%s\n", worker.WorkerStateDebugString())
 	if diff == 0 {
 		t.Error("Time diff is zero")
 	}
@@ -496,10 +457,8 @@ func TestWakeThenUpdateTimeout(t *testing.T) {
 
 	go func() {
 		for count == 0 || w.Worker.JobCount() != 0 {
-			t.Log("Entering Woker loop: " + w.Worker.WorkerStateDebugString())
 			w.Worker.SingleRun()
 		}
-		t.Log("Exiting Worker loop: " + w.Worker.WorkerStateDebugString())
 		cancel()
 	}()
 
@@ -619,15 +578,12 @@ func TestNonWorkerReconfigure(t *testing.T) {
 
 	go func() {
 		// need one loop load the job into the worker
-		t.Log("Setting up Woker loop: " + w.Worker.WorkerStateDebugString())
 		w.Worker.SingleRun()
-		t.Log("Entering up Woker loop: " + w.Worker.WorkerStateDebugString())
 		// force the job to have a wokrer before we start
 		w.Job.SetEvents(CAN_END)
 		for w.Worker.JobCount() != 0 {
 			w.Worker.SingleRun()
 		}
-		t.Log("Exiting Woker loop: " + w.Worker.WorkerStateDebugString())
 		cancle()
 	}()
 
@@ -651,13 +607,13 @@ func TestUnlimitedWorker(t *testing.T) {
 			t.Fatalf("Should be able to add as many jobs as we like!")
 		}
 	}
-	w.SingleRun()
+	w.SingleRun(time.Now().UnixMilli())
 	t.Log(w.PoolUsageString())
 	w.Stop()
 	// if somehting is not worek
 	w.Start()
 	w.Start()
-	(*w.jobs[0])[0].Release()
+	w.ctrl.ClearPool(nil)
 
 }
 

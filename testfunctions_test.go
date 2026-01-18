@@ -67,6 +67,7 @@ func (s *WorkerTestSet) singleLoop(t *testing.T) {
 	fail := true
 
 	go func() {
+		s.Worker.nextTs = time.Now().UnixMilli()
 		s.Worker.SingleRun()
 		fail = false
 		defer cancel()
