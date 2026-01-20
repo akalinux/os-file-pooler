@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sync"
 	"time"
 	"unsafe"
@@ -188,7 +189,6 @@ func (s *Worker) pushJobConfig(id int64) error {
 	if size != INT64_SIZE {
 		return ERR_QUE_FULL
 	}
-	fmt.Printf("  Wrote job id: %d\n", id)
 
 	return nil
 }
@@ -233,37 +233,33 @@ func (s *Worker) Start() error {
 	}
 
 	for !s.closed {
-		fmt.Printf("Looping\n")
 		s.SingleRun()
 	}
 	return nil
 }
 
 func (s *Worker) SingleRun() error {
-	now, sleep := s.nextState()
-	fmt.Printf("Sleeping for: %d\n", sleep)
+	sleep := s.nextState()
 	active, e := s.doPoll(sleep)
 	if e != nil {
 		return e
 	}
-	s.processNextSet(now, active)
-	fmt.Printf("Post process worker state: %v\n", s.closed)
+	s.processNextSet(time.Now().UnixMilli(), active)
 	if s.closed {
-		fmt.Printf("****** We are in shutdown\n")
 		return ERR_SHUTDOWN
 	}
 
 	return nil
 }
 
-func (s *Worker) nextState() (now int64, sleep int64) {
+func (s *Worker) nextState() (sleep int64) {
 
-	now = time.Now().UnixMilli()
+	now := time.Now().UnixMilli()
 	sleep = -1
 	if ts, ok := s.timeouts.FirstKey(); ok {
 		diff := ts - now
-
-		sleep = max(diff, -1)
+		sleep = max(diff, 0)
+		now += sleep
 	}
 	return
 }
@@ -274,13 +270,22 @@ func (s *Worker) doPoll(sleep int64) (active int, err error) {
 		err = ERR_SHUTDOWN
 		return
 	}
+
+	if s.limit == 0 {
+		total := len(s.fdjobs)
+		if cap(s.events) < total {
+			s.events = slices.Grow(s.events, total)
+			s.events = s.events[:total]
+
+		}
+	}
+
 	active, err = unix.EpollWait(s.epfd, s.events, int(sleep))
 	return
 }
 
 func (s *Worker) processNextSet(now int64, active int) {
 
-	fmt.Printf("ACtive count: %d\n", active)
 	for i := 0; i < active; i++ {
 		events := s.events[i].Events
 		fd := s.events[i].Fd
@@ -289,27 +294,22 @@ func (s *Worker) processNextSet(now int64, active int) {
 		if !ok {
 			panic("Wooks")
 		}
-		fmt.Printf("Working with: job: %d\n", job.JobId())
 		check := events & job.wanted
 		if check == 0 {
 			// if we get here, we need to check for errors dirrectly
 			if events&IN_EOF != 0 {
 				// best guess is EOF.. may be a few others
 				// like io.ErrClosedPipe
-				fmt.Printf("error Closing EOF\n")
 				s.clearJob(job, io.EOF)
 			} else if events&IN_ERROR != 0 {
-				fmt.Printf("error Closing ERROR\n")
 				s.clearJob(job, io.ErrUnexpectedEOF)
 			}
-			fmt.Printf("Got out of error check\n")
 			// start our error check states
 			continue
 
 		}
 		w, t, e := job.ProcessEvents(check, now)
 		if e != nil || (w == 0 && t <= 0) {
-			fmt.Printf("no events ,no timeout, Closing\n")
 			s.clearJob(job, e)
 			continue
 		}
@@ -329,7 +329,6 @@ func (s *Worker) processNextSet(now int64, active int) {
 			s.updateTimeout(s.jobs[job.JobId()], t)
 		}
 	}
-	fmt.Printf("---- Finalized\n")
 }
 
 func (s *Worker) updateTimeout(job *wjc, ts int64) (needsCleanup bool) {
@@ -376,7 +375,6 @@ func (s *Worker) changeEvents(job *wjc, events uint32) bool {
 // Call this when a job needs to be removed from the pool.
 func (s *Worker) clearJob(job *wjc, e error) {
 
-	fmt.Printf("Throttle is at: %d\n", len(s.throttle))
 	fd := job.Fd()
 	if fd > -1 {
 		unix.EpollCtl(s.epfd, unix.EPOLL_CTL_DEL, int(fd), nil)
@@ -393,10 +391,8 @@ func (s *Worker) clearJob(job *wjc, e error) {
 		}
 	}
 	job.ClearPool(e)
-	if s.limit != 0 {
-		fmt.Printf("We are in throttle mode, have to clear a job\n")
+	if s.limit != 0 && s.ctrl.jobId != job.JobId() {
 		<-s.throttle
-		fmt.Printf("Job cleared\n")
 	}
 }
 
@@ -426,10 +422,7 @@ func (s *Worker) AddJob(job Job) (err error) {
 	} else {
 		select {
 		case s.throttle <- struct{}{}:
-			fmt.Printf("We are in throttle mode\n")
 			s.que <- job
-
-			fmt.Printf("Throttle is at: %d\n", len(s.throttle))
 			err = s.wakeup()
 		default:
 			err = ERR_QUE_FULL

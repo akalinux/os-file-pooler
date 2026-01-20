@@ -2,7 +2,6 @@ package osfp
 
 import (
 	"errors"
-	"fmt"
 
 	"golang.org/x/sys/unix"
 )
@@ -20,7 +19,6 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 	}
 	futureTimeOut = -1
 	worker := s.worker
-	fmt.Printf("Throttle is at: %d\n", len(worker.throttle))
 	if currentEvents&IN_ERROR != 0 {
 		watchEevents = 0
 		futureTimeOut = 0
@@ -66,7 +64,6 @@ CTRL_LOOP:
 
 func (s *controlJob) processBuffer(size int, now int64) (run bool) {
 	if s.worker == nil {
-		fmt.Printf("We have no worker!\n")
 		return
 	}
 	worker := s.worker
@@ -199,8 +196,6 @@ func (s *controlJob) SetPool(worker *Worker, now int64) (watchEevents uint32, fu
 func (s *controlJob) ClearPool(_ error) {
 	if s.worker != nil {
 		s.worker.timeouts.RemoveAll()
-		fmt.Printf("Got here, need to close our owner\n")
-		fmt.Printf("State: %v\n", s.worker.closed)
 		s.worker.closed = true
 		for id, job := range s.worker.jobs {
 			if id == s.jobId {
@@ -213,7 +208,6 @@ func (s *controlJob) ClearPool(_ error) {
 	s.worker.fdjobs = nil
 	s.worker = nil
 	s.buffer = nil
-	fmt.Printf("Was able to clear job\n")
 }
 
 type controlJob struct {

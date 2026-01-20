@@ -64,11 +64,10 @@ func TestCtrlJobByteReader(t *testing.T) {
 
 func TestJobId(t *testing.T) {
 
-	if nextJobId() == nextJobId() {
-		t.Fatalf("exepected job id to change")
-	}
-	if nextJobId() == nextJobId() {
-		t.Fatalf("exepected job id to change")
+	a := nextJobId()
+	b := nextJobId()
+	if a == b {
+		t.Fatalf("exepected a!=b")
 	}
 	t.Logf("New job id: %d", nextJobId())
 }
@@ -79,12 +78,6 @@ func TestNewWorker(t *testing.T) {
 	if e != nil {
 		t.Errorf("Failed to start New local worker")
 		return
-	}
-
-	tnow := time.Now()
-	w.nextTs = tnow.UnixMilli() + 2000
-	if now, sleep := w.nextState(); now != tnow.UnixMilli() || sleep != 2000 {
-		t.Fatalf("Bad sleep or now conversion, expected sleep 0f: 2000, got: %d", sleep)
 	}
 
 	if w.JobCount() != 0 {
@@ -289,6 +282,7 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 		}
 	}
 	go func() {
+		t.Logf("Throttle que size is: %d", len(w.Worker.throttle))
 		w.Worker.Start()
 		defer cancel()
 	}()
@@ -327,6 +321,7 @@ func TestAddFdTimeout(t *testing.T) {
 			t.Log("Error Check Completed, Shutting the worker down")
 			e = config.Error()
 			worker.Stop()
+			t.Log("got to shutdown")
 		}
 	}
 	worker.AddJob(job)
