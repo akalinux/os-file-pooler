@@ -555,17 +555,21 @@ func TestWrite(t *testing.T) {
 	var r *os.File
 	var w *os.File
 	job, r, w = createWJob(func(config *CallbackEvent) {
+		t.Logf("On Callbaack pass: %d", count)
 		switch count {
 		case 0:
 			config.PollRead()
 			t.Log("Writing first Chunk [Hello ]")
 			w.Write([]byte("Hello "))
 			if !config.IsWrite() {
-				panic("Should be in write mode")
+				t.Fatalf("Should be in write mode")
 			}
 			config.SetTimeout(1)
 		case 1:
 			if ok := config.InTimeout(); !ok {
+				t.Fatalf("Failed to get our timeout")
+			} else {
+				t.Logf("Got timeout notice!")
 			}
 			t.Log("Swapping back to write poll")
 			config.PollWrite()
@@ -573,7 +577,7 @@ func TestWrite(t *testing.T) {
 		case 2:
 			t.Log("Writing second Chunk [Word!]")
 			if !config.IsWrite() {
-				panic("Should be in write mode")
+				t.Fatalf("Should be in write mode")
 			}
 			w.Write([]byte("Workd!"))
 		default:
@@ -587,7 +591,6 @@ func TestWrite(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	go func() {
 		for count < 3 {
-			t.Logf("On Pass: %d", count)
 			m.SingleRun()
 		}
 		t.Log("Done")

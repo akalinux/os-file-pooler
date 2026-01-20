@@ -84,7 +84,6 @@ func (s *controlJob) processBuffer(size int, now int64) (run bool) {
 						return
 					}
 				}
-
 				worker.changeEvents(job, events)
 				worker.resetTimeout(job, t)
 
@@ -171,7 +170,7 @@ func (s *controlJob) addTimeoutJob(job Job, t int64) {
 	if m, ok := s.worker.timeouts.Get(t); ok {
 		m[job.JobId()] = job
 	} else {
-		s.worker.timeouts.Put(t, map[int64]Job{t: job})
+		s.worker.timeouts.Put(t, map[int64]Job{job.JobId(): job})
 	}
 }
 

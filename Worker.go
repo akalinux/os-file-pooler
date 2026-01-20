@@ -286,7 +286,7 @@ func (s *Worker) doPoll(sleep int64) (active int, err error) {
 
 func (s *Worker) processNextSet(now int64, active int) {
 
-	for i := 0; i < active; i++ {
+	for i := range active {
 		events := s.events[i].Events
 		fd := s.events[i].Fd
 
@@ -322,11 +322,13 @@ func (s *Worker) processNextSet(now int64, active int) {
 		// side effect of entering this loop, each delement in this array has been deleted.
 		for id, job := range jobs {
 			w, t, e := job.CheckTimeOut(now, lastTimeout)
+			jc := s.jobs[id]
 			if e != nil || (w == 0 && t <= 0) {
-				s.clearJob(s.jobs[id], e)
+				s.clearJob(jc, e)
 				continue
 			}
-			s.updateTimeout(s.jobs[job.JobId()], t)
+			s.updateTimeout(jc, t)
+			s.changeEvents(jc, w)
 		}
 	}
 }
@@ -355,9 +357,8 @@ func (s *Worker) updateTimeout(job *wjc, ts int64) (needsCleanup bool) {
 
 func (s *Worker) changeEvents(job *wjc, events uint32) bool {
 	fd := job.Fd()
-	if job.wanted != events && fd > -1 {
+	if fd > -1 && job.wanted != events {
 		// update what we want!
-		job.wanted = events
 		e := unix.EpollCtl(s.epfd, unix.EPOLL_CTL_DEL, int(fd), nil)
 		if e != nil {
 			s.clearJob(job, e)
@@ -368,6 +369,7 @@ func (s *Worker) changeEvents(job *wjc, events uint32) bool {
 			s.clearJob(job, e)
 			return false
 		}
+		job.wanted = events
 	}
 	return true
 }
