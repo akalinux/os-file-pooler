@@ -83,8 +83,10 @@ func spawnRJobAndWorker(t *testing.T) *WorkerTestSet {
 	s := createLocalWorker()
 
 	job, r, w := createRJob(nil)
+	t.Logf("-- New JobId: %d\n", job.JobId())
 	e := s.AddJob(job)
 	if e != nil {
+		t.Logf("Got error: %v", e)
 		panic("Failed to add job, error was: " + e.Error())
 	}
 

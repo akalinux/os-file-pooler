@@ -17,6 +17,7 @@ type Util struct {
 // by calling the *CallBackJob.Release() method.
 func (s *Util) SetTimeout(cb func(), timeout int64) (*CallBackJob, error) {
 	job := &CallBackJob{
+		fd: -1,
 		onEvent: func(event *CallbackEvent) {
 			if event.InTimeout() {
 				cb()
@@ -32,6 +33,7 @@ func (s *Util) SetTimeout(cb func(), timeout int64) (*CallBackJob, error) {
 // can either calling the *CallBackJob.Release() method or by calling the *CallbackEvent.Release() method.
 func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*CallBackJob, error) {
 	job := &CallBackJob{
+		fd: -1,
 		onEvent: func(event *CallbackEvent) {
 			if event.InTimeout() {
 				event.SetTimeout(interval)
@@ -95,6 +97,7 @@ func (s *Util) SetCron(cb func(), cron string) (*CallBackJob, error) {
 	next := expr.Next(now)
 	interval := next.UnixMilli() - now.UnixMilli()
 	job := &CallBackJob{
+		fd: -1,
 		onEvent: func(event *CallbackEvent) {
 			now = event.GetNow()
 			next = expr.Next(now)

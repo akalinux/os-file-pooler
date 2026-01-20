@@ -45,7 +45,7 @@ func (s *CallBackJob) SetTimeout(t int64) {
 	}
 	s.timeout = t
 	if s.worker != nil {
-		s.worker.Wakeup()
+		s.worker.pushJobConfig(s.jobId)
 	}
 }
 
@@ -170,7 +170,7 @@ func (s *CallBackJob) SetEvents(events uint32) error {
 	s.events = events
 	s.timeout = 0
 	if s.worker != nil {
-		return s.worker.Wakeup()
+		return s.worker.pushJobConfig(s.jobId)
 	}
 	return nil
 }
@@ -180,7 +180,7 @@ func (s *CallBackJob) Release() error {
 	s.events = CAN_END
 	s.timeout = 0
 	if s.worker != nil {
-		return s.worker.Wakeup()
+		return s.worker.pushJobConfig(s.jobId)
 	}
 	return nil
 }
