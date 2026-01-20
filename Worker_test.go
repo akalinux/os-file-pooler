@@ -283,6 +283,7 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 			e = config.Error()
 			diff = time.Now().UnixMilli() - now
 			t.Log("Timeout Check completed")
+			t.Logf("Throttle que size is: %d", len(w.Worker.throttle))
 			t.Log("Error Check Completed, Shutting the worker down")
 			w.Worker.Stop()
 		}

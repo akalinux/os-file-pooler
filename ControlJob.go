@@ -20,8 +20,8 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 	}
 	futureTimeOut = -1
 	worker := s.worker
+	fmt.Printf("Throttle is at: %d\n", len(worker.throttle))
 	if currentEvents&IN_ERROR != 0 {
-		fmt.Printf("got error in control job\n")
 		watchEevents = 0
 		futureTimeOut = 0
 		EventError = ERR_SHUTDOWN
@@ -32,7 +32,6 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 
 	size, EventError := worker.read.Read(s.buffer)
 	if EventError != nil {
-		fmt.Printf("got read error in control job\n")
 		EventError = ERR_SHUTDOWN
 		worker.write.Close()
 		worker.closed = true
@@ -40,8 +39,7 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 	}
 
 	watchEevents = CAN_READ
-	if ok, ts := s.processBuffer(size, now); !ok {
-		futureTimeOut = resolveNextTs(futureTimeOut, ts)
+	if ok := s.processBuffer(size, now); !ok {
 		return
 	}
 
@@ -56,9 +54,7 @@ CTRL_LOOP:
 		}
 		select {
 		case job := <-que:
-			fmt.Printf("Added job: \n")
-			futureTimeOut = resolveNextTs(futureTimeOut, s.AddJob(job, now))
-
+			s.AddJob(job, now)
 		default:
 			// No more jobs to add
 			break CTRL_LOOP
@@ -68,22 +64,16 @@ CTRL_LOOP:
 	return
 }
 
-func (s *controlJob) processBuffer(size int, now int64) (run bool, nextTs int64) {
-	nextTs = -1
+func (s *controlJob) processBuffer(size int, now int64) (run bool) {
 	if s.worker == nil {
 		fmt.Printf("We have no worker!\n")
 		return
 	}
 	worker := s.worker
-	fmt.Printf("Size was; %d, backlog: %d\n", size, len(s.backlog))
 	s.byteReader(size, func(jobid int64) {
-
-		fmt.Printf("Internals got jobid: %d\n", jobid)
 		if jobid == WAKEUP_THREAD {
-			fmt.Printf("Got signal to check for new jobs\n")
 			run = true
 		} else if job, ok := worker.jobs[jobid]; ok {
-			fmt.Printf("Reconfigureding jobid: %d\n", jobid)
 			events, t, fd := job.SetPool(worker, now)
 
 			if fd != -1 {
@@ -94,20 +84,16 @@ func (s *controlJob) processBuffer(size int, now int64) (run bool, nextTs int64)
 					if events == 0 {
 						// need to remove from our watcehrs
 						worker.clearJob(job, nil)
-						fmt.Printf("Clearing the job\n")
 						return
 					}
 				}
 
-				fmt.Printf("Updating the job\n")
 				worker.changeEvents(job, events)
 				worker.resetTimeout(job, t)
 
 			} else {
-				fmt.Printf("Updating the job ( timeout only )\n")
 				worker.resetTimeout(job, t)
 			}
-			nextTs = resolveNextTs(nextTs, t)
 		}
 	})
 	return
@@ -153,8 +139,7 @@ func (s *controlJob) byteReader(size int, cb func(int64)) {
 	}
 }
 
-func (s *controlJob) AddJob(job Job, now int64) (nextTs int64) {
-	nextTs = -1
+func (s *controlJob) AddJob(job Job, now int64) {
 	worker := s.worker
 
 	events, t, fd := job.SetPool(s.worker, now)
@@ -163,33 +148,26 @@ func (s *controlJob) AddJob(job Job, now int64) (nextTs int64) {
 		nextTs: t,
 		wanted: events,
 	}
-	fmt.Printf("  ***Got job id: %d\n", job.JobId())
 	if events == 0 {
 		if t <= 0 {
-			fmt.Printf("Job has nothing for us to do\n")
 			job.ClearPool(ERR_NO_EVENTS)
 			return
 		}
 		s.addTimeoutJob(job, t)
 	} else {
-		fmt.Printf("Adding job\n")
 		e := unix.EpollCtl(worker.epfd, unix.EPOLL_CTL_ADD, int(fd), &unix.EpollEvent{Events: events, Fd: fd})
 		if e != nil {
 			job.ClearPool(e)
-			fmt.Printf("Giving up because we could not add fd to poller, error was: %v\n", e)
 			return
 		}
 		worker.fdjobs[fd] = c
 	}
 
 	if t > 0 {
-		fmt.Printf("Adding Timout for job\n")
 		s.addTimeoutJob(job, t)
 	}
 
-	nextTs = t
 	worker.jobs[job.JobId()] = c
-	return
 }
 
 func (s *controlJob) addTimeoutJob(job Job, t int64) {
@@ -222,8 +200,12 @@ func (s *controlJob) ClearPool(_ error) {
 	if s.worker != nil {
 		s.worker.timeouts.RemoveAll()
 		fmt.Printf("Got here, need to close our owner\n")
+		fmt.Printf("State: %v\n", s.worker.closed)
 		s.worker.closed = true
-		for _, job := range s.worker.jobs {
+		for id, job := range s.worker.jobs {
+			if id == s.jobId {
+				continue
+			}
 			job.ClearPool(ERR_SHUTDOWN)
 		}
 		unix.Close(s.worker.epfd)
@@ -231,6 +213,7 @@ func (s *controlJob) ClearPool(_ error) {
 	s.worker.fdjobs = nil
 	s.worker = nil
 	s.buffer = nil
+	fmt.Printf("Was able to clear job\n")
 }
 
 type controlJob struct {

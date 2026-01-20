@@ -129,7 +129,6 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 		throttle: throttle,
 		que:      que,
 		limit:    limit,
-		nextTs:   -1,
 		closed:   false,
 		read:     read,
 		write:    write,
@@ -234,6 +233,7 @@ func (s *Worker) Start() error {
 	}
 
 	for !s.closed {
+		fmt.Printf("Looping\n")
 		s.SingleRun()
 	}
 	return nil
@@ -241,15 +241,17 @@ func (s *Worker) Start() error {
 
 func (s *Worker) SingleRun() error {
 	now, sleep := s.nextState()
-	fmt.Printf("^^^Process next, sleep %d\n", sleep)
+	fmt.Printf("Sleeping for: %d\n", sleep)
 	active, e := s.doPoll(sleep)
 	if e != nil {
 		return e
 	}
-	if active == 0 {
-		return nil
-	}
 	s.processNextSet(now, active)
+	fmt.Printf("Post process worker state: %v\n", s.closed)
+	if s.closed {
+		fmt.Printf("****** We are in shutdown\n")
+		return ERR_SHUTDOWN
+	}
 
 	return nil
 }
@@ -259,9 +261,6 @@ func (s *Worker) nextState() (now int64, sleep int64) {
 	now = time.Now().UnixMilli()
 	sleep = -1
 	if ts, ok := s.timeouts.FirstKey(); ok {
-		fmt.Printf("Have a first key\n")
-		fmt.Printf("First key: %d\n", ts)
-		fmt.Printf("Now is   : %d\n", now)
 		diff := ts - now
 
 		sleep = max(diff, -1)
@@ -280,10 +279,6 @@ func (s *Worker) doPoll(sleep int64) (active int, err error) {
 }
 
 func (s *Worker) processNextSet(now int64, active int) {
-	var nextTs int64 = -1
-	if ts, ok := s.timeouts.FirstKey(); ok {
-		nextTs = ts
-	}
 
 	fmt.Printf("ACtive count: %d\n", active)
 	for i := 0; i < active; i++ {
@@ -307,6 +302,7 @@ func (s *Worker) processNextSet(now int64, active int) {
 				fmt.Printf("error Closing ERROR\n")
 				s.clearJob(job, io.ErrUnexpectedEOF)
 			}
+			fmt.Printf("Got out of error check\n")
 			// start our error check states
 			continue
 
@@ -320,49 +316,40 @@ func (s *Worker) processNextSet(now int64, active int) {
 
 		s.resetTimeout(job, t)
 		s.changeEvents(job, w)
-		nextTs = resolveNextTs(nextTs, t)
-		fmt.Printf("  ----NextTs: %d\n  ----GotTs:%d\n", nextTs, t)
-
 	}
+
 	for lastTimeout, jobs := range s.timeouts.RemoveBetweenKV(-1, now, omap.FIRST_KEY) {
 		// side effect of entering this loop, each delement in this array has been deleted.
-		fmt.Printf("***Entering Timeout loop\n")
 		for id, job := range jobs {
-			fmt.Printf("Processing Timout for JobId :  %d\n", id)
 			w, t, e := job.CheckTimeOut(now, lastTimeout)
 			if e != nil || (w == 0 && t <= 0) {
 				s.clearJob(s.jobs[id], e)
 				continue
 			}
-			nextTs = resolveNextTs(nextTs, t)
-			s.updateTimeout(s.jobs[job.JobId()], nextTs)
+			s.updateTimeout(s.jobs[job.JobId()], t)
 		}
 	}
-	// if we get here then we need to process the job event.
-	s.nextTs = nextTs
-	fmt.Printf("  >>>Our nextTs is: %d\n  >>>Now is: %d\n", nextTs, now)
+	fmt.Printf("---- Finalized\n")
 }
 
-func (s *Worker) updateTimeout(job *wjc, nextTs int64) (needsCleanup bool) {
-	if nextTs == job.nextTs {
-		fmt.Printf("No timeout update for :%d\n", job.JobId())
+func (s *Worker) updateTimeout(job *wjc, ts int64) (needsCleanup bool) {
+	if ts == job.nextTs {
 		return false
 	}
 
-	if nextTs < 1 {
-		needsCleanup = job.nextTs > 0
-		job.nextTs = nextTs
+	needsCleanup = job.nextTs > 0
+	if ts < 1 {
+		job.nextTs = ts
 		// stop here if we have nothing to do
 		return
 	}
 	var m map[int64]Job
 	var ok bool
-	if m, ok = s.timeouts.Get(nextTs); !ok {
+	if m, ok = s.timeouts.Get(ts); !ok {
 		m = make(map[int64]Job)
-		s.timeouts.Put(nextTs, m)
+		s.timeouts.Put(ts, m)
 	}
-	fmt.Printf("Changed timeout \n  from: %d\n    to %d\n", job.nextTs, nextTs)
-	job.nextTs = nextTs
+	job.nextTs = ts
 	m[job.JobId()] = job
 	return
 }
@@ -389,6 +376,7 @@ func (s *Worker) changeEvents(job *wjc, events uint32) bool {
 // Call this when a job needs to be removed from the pool.
 func (s *Worker) clearJob(job *wjc, e error) {
 
+	fmt.Printf("Throttle is at: %d\n", len(s.throttle))
 	fd := job.Fd()
 	if fd > -1 {
 		unix.EpollCtl(s.epfd, unix.EPOLL_CTL_DEL, int(fd), nil)
@@ -399,32 +387,17 @@ func (s *Worker) clearJob(job *wjc, e error) {
 	if job.nextTs > 0 {
 		if m, ok := s.timeouts.Get(job.nextTs); ok {
 			delete(m, job.JobId())
-			/*
-				// technically not required!
-				if len(m) == 0 {
-					s.timeouts.Remove(job.nextTs)
-				}
-			*/
+			if len(m) == 0 {
+				s.timeouts.Remove(job.nextTs)
+			}
 		}
 	}
 	job.ClearPool(e)
 	if s.limit != 0 {
+		fmt.Printf("We are in throttle mode, have to clear a job\n")
 		<-s.throttle
+		fmt.Printf("Job cleared\n")
 	}
-}
-
-func resolveNextTs(nextTs, futureTs int64) int64 {
-	if futureTs > 0 {
-
-		if nextTs > 0 {
-			if nextTs > futureTs {
-				return futureTs
-			}
-		} else {
-			return futureTs
-		}
-	}
-	return nextTs
 }
 
 func (s *Worker) Stop() error {
@@ -453,7 +426,10 @@ func (s *Worker) AddJob(job Job) (err error) {
 	} else {
 		select {
 		case s.throttle <- struct{}{}:
+			fmt.Printf("We are in throttle mode\n")
 			s.que <- job
+
+			fmt.Printf("Throttle is at: %d\n", len(s.throttle))
 			err = s.wakeup()
 		default:
 			err = ERR_QUE_FULL
@@ -468,18 +444,14 @@ func (s *Worker) NewUtil() *Util {
 }
 
 func (s *Worker) resetTimeout(job *wjc, t int64) {
-	fmt.Printf("Projecssing new timeout for job: %d\n", job.JobId())
 	if lt := job.nextTs; s.updateTimeout(job, t) {
 		// only clear the old job if we need to
 		if t != job.nextTs {
 			if m, ok := s.timeouts.Get(lt); ok {
 				delete(m, job.JobId())
-				// technically not required and adds overhead we don't need!
-				/*
-					if len(m) == 0 {
-						s.timeouts.Remove(lt)
-					}
-				*/
+				if len(m) == 0 {
+					s.timeouts.Remove(lt)
+				}
 			}
 		}
 	}
