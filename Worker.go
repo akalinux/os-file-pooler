@@ -244,7 +244,8 @@ func (s *Worker) SingleRun() error {
 	if e != nil {
 		return e
 	}
-	s.processNextSet(time.Now().UnixMilli(), active)
+	s.now = time.Now()
+	s.processNextSet(active)
 	if s.closed {
 		return ERR_SHUTDOWN
 	}
@@ -284,18 +285,18 @@ func (s *Worker) doPoll(sleep int64) (active int, err error) {
 	return
 }
 
-func (s *Worker) processNextSet(now int64, active int) {
+func (s *Worker) processNextSet(active int) {
 
+	now := s.now.UnixMilli()
 	for i := range active {
 		events := s.events[i].Events
 		fd := s.events[i].Fd
 
-		job, ok := s.fdjobs[fd]
-		if !ok {
-			panic("Wooks")
-		}
+		job, _ := s.fdjobs[fd]
+
 		check := events & job.wanted
 		if check == 0 {
+			job.InEventLoop()
 			// if we get here, we need to check for errors dirrectly
 			if events&IN_EOF != 0 {
 				// best guess is EOF.. may be a few others
@@ -331,28 +332,6 @@ func (s *Worker) processNextSet(now int64, active int) {
 			s.changeEvents(jc, w)
 		}
 	}
-}
-
-func (s *Worker) updateTimeout(job *wjc, ts int64) (needsCleanup bool) {
-	if ts == job.nextTs {
-		return false
-	}
-
-	needsCleanup = job.nextTs > 0
-	if ts < 1 {
-		job.nextTs = ts
-		// stop here if we have nothing to do
-		return
-	}
-	var m map[int64]Job
-	var ok bool
-	if m, ok = s.timeouts.Get(ts); !ok {
-		m = make(map[int64]Job)
-		s.timeouts.Put(ts, m)
-	}
-	job.nextTs = ts
-	m[job.JobId()] = job
-	return
 }
 
 func (s *Worker) changeEvents(job *wjc, events uint32) bool {
@@ -438,10 +417,32 @@ func (s *Worker) NewUtil() *Util {
 	return &Util{s}
 }
 
+func (s *Worker) updateTimeout(job *wjc, ts int64) (needsCleanup bool) {
+	if ts == job.nextTs {
+		return false
+	}
+
+	needsCleanup = job.nextTs > 0
+	if ts < 1 {
+		job.nextTs = ts
+		// stop here if we have nothing to do
+		return
+	}
+	var m map[int64]Job
+	var ok bool
+	if m, ok = s.timeouts.Get(ts); !ok {
+		m = make(map[int64]Job)
+		s.timeouts.Put(ts, m)
+	}
+	job.nextTs = ts
+	m[job.JobId()] = job
+	return
+}
+
 func (s *Worker) resetTimeout(job *wjc, t int64) {
 	if lt := job.nextTs; s.updateTimeout(job, t) {
 		// only clear the old job if we need to
-		if t != job.nextTs {
+		if lt != job.nextTs {
 			if m, ok := s.timeouts.Get(lt); ok {
 				delete(m, job.JobId())
 				if len(m) == 0 {

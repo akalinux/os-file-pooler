@@ -206,11 +206,18 @@ func TestWorkerJobRead(t *testing.T) {
 	c := ""
 	b := make([]byte, 2)
 
-	w.Job.Timeout = 50
+	w.Job.SetTimeout(50)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer w.WorkerCleanup()
 	defer cancel()
+	stop := false
 	w.Job.OnEventCallBack = func(config *CallbackEvent) {
+		if config.InError() {
+			stop = true
+			t.Logf("Got the following error: %v", config.error)
+			stop = true
+			return
+		}
 		t.Log("*** GOT READ EVENT ***")
 
 		if config.Error() != nil {
@@ -238,15 +245,20 @@ func TestWorkerJobRead(t *testing.T) {
 		}
 		c += string(b[:s])
 		if c == TEST_STRING {
-			t.Log("Got full string")
-			w.Worker.Stop()
+			w.w.Close()
+			t.Log("Got full string and closed writer")
 		}
 	}
 
 	fail := true
 	go func() {
 		// full test
-		w.Worker.Start()
+		for !stop {
+			w.Worker.SingleRun()
+		}
+		t.Logf("Entering shutdown")
+		w.Worker.Stop()
+		w.Worker.SingleRun()
 		fail = false
 		cancel()
 	}()
@@ -500,6 +512,7 @@ func TestWakeThenUpdateTimeout(t *testing.T) {
 		t.Logf("In Callback")
 
 		if !config.InTimeout() {
+			t.Logf("Something went wrong")
 			return
 		}
 		if count < 2 {
@@ -865,5 +878,10 @@ func TestWritePollReader(t *testing.T) {
 
 	t.Logf("CanWrite: %v", canWrite)
 	t.Logf("Was Timout: %v", didTo)
+	p.Stop()
+	p.SingleRun()
+	if !p.closed {
+		t.Fatalf("Failed, should be in a closed state")
+	}
 
 }

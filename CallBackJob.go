@@ -58,6 +58,7 @@ func (s *CallBackJob) ProcessEvents(currentEvents uint32, now int64) (watchEeven
 	s.Lock.RLock()
 	defer s.Lock.RUnlock()
 	s.ran = false
+
 	if currentEvents&CAN_RW != 0 {
 		config := &CallbackEvent{
 			timeout:       s.Timeout,
@@ -155,8 +156,8 @@ func (s *CallBackJob) SetPool(worker *Worker, now int64) (watchEevents uint32, f
 func (s *CallBackJob) ClearPool(e error) {
 	s.Lock.Lock()
 	defer s.Lock.Unlock()
-	s.worker = nil
 	s.safeEvent(&CallbackEvent{error: e})
+	s.worker = nil
 }
 
 func (s *CallBackJob) onRecover(config *CallbackEvent) {
@@ -210,4 +211,8 @@ func (s *CallBackJob) JobId() int64 {
 
 func (s *CallBackJob) Fd() int32 {
 	return s.FdId
+}
+
+func (s *CallBackJob) InEventLoop() {
+	s.ran = false
 }

@@ -74,4 +74,7 @@ type Job interface {
 
 	// Returns the unix fd
 	Fd() int32
+
+	// When called the job has entered the event loop
+	InEventLoop()
 }

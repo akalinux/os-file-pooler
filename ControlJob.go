@@ -206,8 +206,8 @@ func (s *controlJob) ClearPool(_ error) {
 			job.ClearPool(ERR_SHUTDOWN)
 		}
 		unix.Close(s.worker.epfd)
+		s.worker.fdjobs = nil
 	}
-	s.worker.fdjobs = nil
 	s.worker = nil
 	s.buffer = nil
 }
@@ -238,4 +238,8 @@ func (s *controlJob) Release() error {
 
 func (s *controlJob) JobId() int64 {
 	return s.jobId
+}
+
+func (s *controlJob) InEventLoop() {
+	// stub, required for the interface
 }
