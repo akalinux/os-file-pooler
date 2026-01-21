@@ -12,7 +12,7 @@ const TEST_STRING = "this is a test"
 type WorkerTestSet struct {
 	r      *os.File
 	w      *os.File
-	Job    *callBackJob
+	Job    *CallBackJob
 	Worker *Worker
 }
 
@@ -90,7 +90,7 @@ func spawnRJobAndWorker(t *testing.T) *WorkerTestSet {
 		panic("Failed to add job, error was: " + e.Error())
 	}
 
-	rj, _ := job.(*callBackJob)
+	rj, _ := job.(*CallBackJob)
 
 	res := WorkerTestSet{
 		r:      r,

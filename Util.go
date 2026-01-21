@@ -13,17 +13,17 @@ type Util struct {
 	PoolOrWorkerContainer
 }
 
-// Creates a timout that runs once executing the cb function provided. The timeout valie is in milliseconds. You can terminate the timeout,
+// Creates a timout that runs once executing the cb function provided. The timeout value is in milliseconds. You can terminate the timeout,
 // by calling the *CallBackJob.Release() method.
-func (s *Util) SetTimeout(cb func(), timeout int64) (*callBackJob, error) {
-	job := &callBackJob{
-		fd: -1,
-		onEvent: func(event *CallbackEvent) {
+func (s *Util) SetTimeout(cb func(), timeout int64) (*CallBackJob, error) {
+	job := &CallBackJob{
+		FdId: -1,
+		OnEventCallBack: func(event *CallbackEvent) {
 			if event.InTimeout() {
 				cb()
 			}
 		},
-		timeout: timeout,
+		Timeout: timeout,
 	}
 
 	return job, s.AddJob(job)
@@ -31,21 +31,22 @@ func (s *Util) SetTimeout(cb func(), timeout int64) (*callBackJob, error) {
 
 // Creates an timer that will continue to run at regular intervals until terminatedd.  The interval value is in milliseconds.  To terminate the
 // can either calling the *CallBackJob.Release() method or by calling the *CallbackEvent.Release() method.
-func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*callBackJob, error) {
-	job := &callBackJob{
-		fd: -1,
-		onEvent: func(event *CallbackEvent) {
+func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*CallBackJob, error) {
+	job := &CallBackJob{
+		FdId: -1,
+		OnEventCallBack: func(event *CallbackEvent) {
 			if event.InTimeout() {
 				event.SetTimeout(interval)
 				cb(event)
 			}
 		},
-		timeout: interval,
+		Timeout: interval,
 	}
 
 	return job, s.AddJob(job)
 }
 
+// Watches a given pid and runs cb on exit.  The process exit code can be found in *WaitPidEvent.ExitCode.
 func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
 	pfd, err := unix.PidfdOpen(pid, unix.PIDFD_NONBLOCK)
 
@@ -58,10 +59,10 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
 	job = &WaitPidJob{
 		pid: pid,
 		fd:  &pfd,
-		callBackJob: &callBackJob{
-			fd:     int32(pfd),
-			events: CAN_READ,
-			onEvent: func(event *CallbackEvent) {
+		CallBackJob: &CallBackJob{
+			FdId:   int32(pfd),
+			Events: CAN_READ,
+			OnEventCallBack: func(event *CallbackEvent) {
 
 				if pfd == -1 {
 					// we have been closed!
@@ -86,7 +87,7 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
 	return job, s.AddJob(job)
 }
 
-func (s *Util) SetCron(cb func(), cron string) (*callBackJob, error) {
+func (s *Util) SetCron(cb func(), cron string) (*CallBackJob, error) {
 
 	expr, err := cronexpr.Parse(cron)
 	if err != nil {
@@ -96,9 +97,9 @@ func (s *Util) SetCron(cb func(), cron string) (*callBackJob, error) {
 	now := time.Now()
 	next := expr.Next(now)
 	interval := next.UnixMilli() - now.UnixMilli()
-	job := &callBackJob{
-		fd: -1,
-		onEvent: func(event *CallbackEvent) {
+	job := &CallBackJob{
+		FdId: -1,
+		OnEventCallBack: func(event *CallbackEvent) {
 			now = event.GetNow()
 			next = expr.Next(now)
 			interval = next.UnixMilli() - now.UnixMilli()
@@ -107,7 +108,7 @@ func (s *Util) SetCron(cb func(), cron string) (*callBackJob, error) {
 				cb()
 			}
 		},
-		timeout: interval,
+		Timeout: interval,
 	}
 
 	return job, s.AddJob(job)

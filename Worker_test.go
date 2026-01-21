@@ -87,8 +87,8 @@ func TestNewWorker(t *testing.T) {
 	// Synthetic Job
 	ph, _, f := createRJob(nil)
 	defer f.Close()
-	job, _ := ph.(*callBackJob)
-	job.events = 0
+	job, _ := ph.(*CallBackJob)
+	job.Events = 0
 	w.throttle <- struct{}{}
 	w.que <- job
 	w.write.Write([]byte{1})
@@ -192,7 +192,7 @@ func TestClearJob(t *testing.T) {
 	w.w.Close()
 	var e error
 	defer w.WorkerCleanup()
-	w.Job.onEvent = func(c *CallbackEvent) {
+	w.Job.OnEventCallBack = func(c *CallbackEvent) {
 		e = c.Error()
 	}
 	w.singleLoop(t)
@@ -206,11 +206,11 @@ func TestWorkerJobRead(t *testing.T) {
 	c := ""
 	b := make([]byte, 2)
 
-	w.Job.timeout = 50
+	w.Job.Timeout = 50
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer w.WorkerCleanup()
 	defer cancel()
-	w.Job.onEvent = func(config *CallbackEvent) {
+	w.Job.OnEventCallBack = func(config *CallbackEvent) {
 		t.Log("*** GOT READ EVENT ***")
 
 		if config.Error() != nil {
@@ -232,7 +232,7 @@ func TestWorkerJobRead(t *testing.T) {
 			panic("We are not in a Read+Write mode!")
 		}
 		s, x := w.r.Read(b[:cap(b)])
-		t.Logf("Timeout is: %d", w.Job.timeout)
+		t.Logf("Timeout is: %d", w.Job.Timeout)
 		if x != nil {
 			panic(x)
 		}
@@ -271,7 +271,7 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 	var diff int64 = 0
 	now := time.Now().UnixMilli()
 	var e error
-	w.Job.onEvent = func(config *CallbackEvent) {
+	w.Job.OnEventCallBack = func(config *CallbackEvent) {
 		if timeout = config.InTimeout(); timeout {
 			e = config.Error()
 			diff = time.Now().UnixMilli() - now
@@ -300,7 +300,7 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 func TestAddFdTimeout(t *testing.T) {
 	worker := createLocalWorker()
 	j, _, w := createRJob(nil)
-	job, _ := j.(*callBackJob)
+	job, _ := j.(*CallBackJob)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 
 	// force the worker to wake up
@@ -314,7 +314,7 @@ func TestAddFdTimeout(t *testing.T) {
 	now := time.Now().UnixMilli()
 	var e error
 	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-	job.onEvent = func(config *CallbackEvent) {
+	job.OnEventCallBack = func(config *CallbackEvent) {
 		if timeout = config.InTimeout(); timeout {
 			diff = time.Now().UnixMilli() - now
 			t.Log("Timeout Check completed")
@@ -356,7 +356,7 @@ func TestMultipleFdTimeouts(t *testing.T) {
 	defer w.WorkerCleanup()
 	defer cancel()
 
-	jobs := [3]*callBackJob{}
+	jobs := [3]*CallBackJob{}
 	jobs[0] = w.Job
 
 	ja, _, fdwa := createRJob(nil)
@@ -368,8 +368,8 @@ func TestMultipleFdTimeouts(t *testing.T) {
 	t.Log("Adding Job 3")
 	w.Worker.AddJob(jb)
 
-	jobs[1] = ja.(*callBackJob)
-	jobs[2] = jb.(*callBackJob)
+	jobs[1] = ja.(*CallBackJob)
+	jobs[2] = jb.(*CallBackJob)
 
 	results := [3]map[string]any{
 		make(map[string]any),
@@ -385,7 +385,7 @@ func TestMultipleFdTimeouts(t *testing.T) {
 		cmp = limit
 		count := 0
 		id := i
-		jobs[i].onEvent = func(e *CallbackEvent) {
+		jobs[i].OnEventCallBack = func(e *CallbackEvent) {
 			count++
 			t.Logf("** Job %d, called: %d", id, count)
 			t.Logf("Config: %v\n", e)
@@ -441,9 +441,9 @@ func TestTimeout(t *testing.T) {
 	var ts int64
 	var e error
 	var ok bool = false
-	job := &callBackJob{
-		timeout: 25,
-		onEvent: func(c *CallbackEvent) {
+	job := &CallBackJob{
+		Timeout: 25,
+		OnEventCallBack: func(c *CallbackEvent) {
 			if ok = c.InTimeout(); ok {
 				ts = time.Now().UnixMilli()
 				e = c.Error()
@@ -496,7 +496,7 @@ func TestWakeThenUpdateTimeout(t *testing.T) {
 
 	count := 0
 	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-	w.Job.onEvent = func(config *CallbackEvent) {
+	w.Job.OnEventCallBack = func(config *CallbackEvent) {
 		t.Logf("In Callback")
 
 		if !config.InTimeout() {
@@ -528,7 +528,7 @@ func TestRelease(t *testing.T) {
 	w := spawnRJobAndWorker(t)
 	defer w.WorkerCleanup()
 
-	w.Job.onEvent = func(config *CallbackEvent) {
+	w.Job.OnEventCallBack = func(config *CallbackEvent) {
 		config.Release()
 	}
 
@@ -661,7 +661,7 @@ func TestUnlimitedWorker(t *testing.T) {
 	w, _ := NewLocalWorker(0)
 	defer w.Stop()
 	for range UNLIMITED_QUE_SIZE {
-		e := w.AddJob(&callBackJob{jobId: NextJobId()})
+		e := w.AddJob(&CallBackJob{RawJobId: NextJobId()})
 		if e != nil {
 			t.Fatalf("Should be able to add as many jobs as we like!")
 		}
@@ -853,7 +853,7 @@ func TestWritePollReader(t *testing.T) {
 		didTo = config.InTimeout()
 		canWrite = config.IsWrite()
 	})
-	job, _ := j.(*callBackJob)
+	job, _ := j.(*CallBackJob)
 	job.SetTimeout(10)
 	job.SetEvents(CAN_RW)
 	defer w.Close()
