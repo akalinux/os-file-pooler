@@ -15,8 +15,8 @@ type Util struct {
 
 // Creates a timout that runs once executing the cb function provided. The timeout valie is in milliseconds. You can terminate the timeout,
 // by calling the *CallBackJob.Release() method.
-func (s *Util) SetTimeout(cb func(), timeout int64) (*CallBackJob, error) {
-	job := &CallBackJob{
+func (s *Util) SetTimeout(cb func(), timeout int64) (*callBackJob, error) {
+	job := &callBackJob{
 		fd: -1,
 		onEvent: func(event *CallbackEvent) {
 			if event.InTimeout() {
@@ -31,8 +31,8 @@ func (s *Util) SetTimeout(cb func(), timeout int64) (*CallBackJob, error) {
 
 // Creates an timer that will continue to run at regular intervals until terminatedd.  The interval value is in milliseconds.  To terminate the
 // can either calling the *CallBackJob.Release() method or by calling the *CallbackEvent.Release() method.
-func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*CallBackJob, error) {
-	job := &CallBackJob{
+func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*callBackJob, error) {
+	job := &callBackJob{
 		fd: -1,
 		onEvent: func(event *CallbackEvent) {
 			if event.InTimeout() {
@@ -58,7 +58,7 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
 	job = &WaitPidJob{
 		pid: pid,
 		fd:  &pfd,
-		CallBackJob: &CallBackJob{
+		callBackJob: &callBackJob{
 			fd:     int32(pfd),
 			events: CAN_READ,
 			onEvent: func(event *CallbackEvent) {
@@ -86,7 +86,7 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
 	return job, s.AddJob(job)
 }
 
-func (s *Util) SetCron(cb func(), cron string) (*CallBackJob, error) {
+func (s *Util) SetCron(cb func(), cron string) (*callBackJob, error) {
 
 	expr, err := cronexpr.Parse(cron)
 	if err != nil {
@@ -96,7 +96,7 @@ func (s *Util) SetCron(cb func(), cron string) (*CallBackJob, error) {
 	now := time.Now()
 	next := expr.Next(now)
 	interval := next.UnixMilli() - now.UnixMilli()
-	job := &CallBackJob{
+	job := &callBackJob{
 		fd: -1,
 		onEvent: func(event *CallbackEvent) {
 			now = event.GetNow()

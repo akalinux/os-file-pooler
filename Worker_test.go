@@ -64,12 +64,12 @@ func TestCtrlJobByteReader(t *testing.T) {
 
 func TestJobId(t *testing.T) {
 
-	a := nextJobId()
-	b := nextJobId()
+	a := NextJobId()
+	b := NextJobId()
 	if a == b {
 		t.Fatalf("exepected a!=b")
 	}
-	t.Logf("New job id: %d", nextJobId())
+	t.Logf("New job id: %d", NextJobId())
 }
 
 func TestNewWorker(t *testing.T) {
@@ -87,7 +87,7 @@ func TestNewWorker(t *testing.T) {
 	// Synthetic Job
 	ph, _, f := createRJob(nil)
 	defer f.Close()
-	job, _ := ph.(*CallBackJob)
+	job, _ := ph.(*callBackJob)
 	job.events = 0
 	w.throttle <- struct{}{}
 	w.que <- job
@@ -300,7 +300,7 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 func TestAddFdTimeout(t *testing.T) {
 	worker := createLocalWorker()
 	j, _, w := createRJob(nil)
-	job, _ := j.(*CallBackJob)
+	job, _ := j.(*callBackJob)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 
 	// force the worker to wake up
@@ -356,7 +356,7 @@ func TestMultipleFdTimeouts(t *testing.T) {
 	defer w.WorkerCleanup()
 	defer cancel()
 
-	jobs := [3]*CallBackJob{}
+	jobs := [3]*callBackJob{}
 	jobs[0] = w.Job
 
 	ja, _, fdwa := createRJob(nil)
@@ -368,8 +368,8 @@ func TestMultipleFdTimeouts(t *testing.T) {
 	t.Log("Adding Job 3")
 	w.Worker.AddJob(jb)
 
-	jobs[1] = ja.(*CallBackJob)
-	jobs[2] = jb.(*CallBackJob)
+	jobs[1] = ja.(*callBackJob)
+	jobs[2] = jb.(*callBackJob)
 
 	results := [3]map[string]any{
 		make(map[string]any),
@@ -441,7 +441,7 @@ func TestTimeout(t *testing.T) {
 	var ts int64
 	var e error
 	var ok bool = false
-	job := &CallBackJob{
+	job := &callBackJob{
 		timeout: 25,
 		onEvent: func(c *CallbackEvent) {
 			if ok = c.InTimeout(); ok {
@@ -661,7 +661,7 @@ func TestUnlimitedWorker(t *testing.T) {
 	w, _ := NewLocalWorker(0)
 	defer w.Stop()
 	for range UNLIMITED_QUE_SIZE {
-		e := w.AddJob(&CallBackJob{})
+		e := w.AddJob(&callBackJob{jobId: NextJobId()})
 		if e != nil {
 			t.Fatalf("Should be able to add as many jobs as we like!")
 		}
@@ -673,7 +673,9 @@ func TestUnlimitedWorker(t *testing.T) {
 	// if somehting is not worek
 	w.Start()
 	w.Start()
-	w.ctrl.ClearPool(nil)
+	if !w.closed {
+		t.Fatalf("We should now be closed!")
+	}
 
 }
 
@@ -851,7 +853,7 @@ func TestWritePollReader(t *testing.T) {
 		didTo = config.InTimeout()
 		canWrite = config.IsWrite()
 	})
-	job, _ := j.(*CallBackJob)
+	job, _ := j.(*callBackJob)
 	job.SetTimeout(10)
 	job.SetEvents(CAN_RW)
 	defer w.Close()

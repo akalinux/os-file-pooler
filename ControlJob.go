@@ -200,6 +200,9 @@ func (s *controlJob) ClearPool(_ error) {
 			if id == s.jobId {
 				continue
 			}
+			if job.Fd() > -1 {
+				unix.EpollCtl(s.worker.epfd, unix.EPOLL_CTL_DEL, int(job.Fd()), nil)
+			}
 			job.ClearPool(ERR_SHUTDOWN)
 		}
 		unix.Close(s.worker.epfd)
@@ -224,7 +227,7 @@ func (s *controlJob) Fd() int32 {
 func newControlJob() *controlJob {
 	return &controlJob{
 		buffer:  make([]byte, WORKER_BUFFER_SIZE),
-		jobId:   nextJobId(),
+		jobId:   NextJobId(),
 		backlog: make([]byte, 0, INT64_SIZE),
 	}
 }

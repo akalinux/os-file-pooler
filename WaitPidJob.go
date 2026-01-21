@@ -3,7 +3,7 @@ package osfp
 import "golang.org/x/sys/unix"
 
 type WaitPidJob struct {
-	*CallBackJob
+	*callBackJob
 	pid int
 	fd  *int
 }
@@ -17,7 +17,7 @@ func (s *WaitPidJob) Release() error {
 
 	defer s.closeFd()
 	s.Lock.Unlock()
-	return s.CallBackJob.Release()
+	return s.callBackJob.Release()
 
 }
 

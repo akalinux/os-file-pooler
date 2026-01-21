@@ -3,7 +3,7 @@ package osfp
 import "testing"
 
 func TestCallBackPanic(t *testing.T) {
-	job := &CallBackJob{
+	job := &callBackJob{
 		onEvent: func(config *CallbackEvent) {
 			t.Logf("Getting called")
 			if config.Error() == nil {

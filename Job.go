@@ -14,7 +14,8 @@ func init() {
 
 const JOB_ID_ADD_ONE int64 = 1
 
-func nextJobId() int64 {
+// Thread safe function used to generate new JobIds
+func NextJobId() int64 {
 	return atomic.AddInt64(jobIdSeq, JOB_ID_ADD_ONE)
 }
 
