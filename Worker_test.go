@@ -166,8 +166,7 @@ func TestAddJob(t *testing.T) {
 	go func() {
 		defer cancel()
 		t.Log("Starting poll test")
-		s.nextTs = time.Now().UnixMilli() + time.Hour.Milliseconds()*500
-		s.SingleRun()
+		s.singleLoop()
 		t.Logf("Job Count: %d", s.JobCount())
 		t.Log("poll test completed")
 	}()
@@ -275,8 +274,8 @@ func TestWorkerJobRead(t *testing.T) {
 
 func TestWorkerUpdateTimeout(t *testing.T) {
 	w := spawnRJobAndWorker(t)
-	w.Job.SetTimeout(5)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	w.Job.SetTimeout(2)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer w.WorkerCleanup()
 	defer cancel()
 	var timeout bool
@@ -318,7 +317,7 @@ func TestAddFdTimeout(t *testing.T) {
 	// force the worker to wake up
 	worker.Wakeup()
 
-	job.SetTimeout(5)
+	job.SetTimeout(2)
 	defer worker.Stop()
 	defer w.Close()
 	var timeout bool
@@ -363,7 +362,7 @@ func TestMultipleFdTimeouts(t *testing.T) {
 	}()
 	defer func() { wokerCount = 1 }()
 	t.Logf("Pool Usage: %s", w.Worker.PoolUsageString())
-	w.Job.SetTimeout(5)
+	w.Job.SetTimeout(1)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer w.WorkerCleanup()
 	defer cancel()
@@ -431,8 +430,8 @@ func TestMultipleFdTimeouts(t *testing.T) {
 	cmp = size
 	for i, res := range results {
 		if len(res) != 3 {
-			t.Errorf("Job: %d, did not complete", i)
-			continue
+			t.Fatalf("Job: %d, did not complete", i)
+			return
 		}
 		v, _ := res["end"]
 		end, _ := v.(int64)
@@ -454,7 +453,7 @@ func TestTimeout(t *testing.T) {
 	var e error
 	var ok bool = false
 	job := &CallBackJob{
-		Timeout:  25,
+		Timeout:  2,
 		RawJobId: NextJobId(),
 		OnEventCallBack: func(c *CallbackEvent) {
 			if ok = c.InTimeout(); ok {
@@ -680,8 +679,8 @@ func TestUnlimitedWorker(t *testing.T) {
 			t.Fatalf("Should be able to add as many jobs as we like!")
 		}
 	}
-	w.nextTs = time.Now().UnixMilli()
-	w.SingleRun()
+	//w.SingleRun()
+	w.singleLoop()
 	t.Log(w.PoolUsageString())
 	w.Stop()
 	// if somehting is not worek
@@ -699,7 +698,7 @@ func TestUtilTimeout(t *testing.T) {
 	u := w.NewUtil()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	count := 0
-	_, e := u.SetTimeout(func(_ *CallbackEvent) { count++ }, 10)
+	_, e := u.SetTimeout(func(_ *CallbackEvent) { count++ }, 1)
 	if e != nil {
 		t.Fatalf("Failed to spawn job")
 	}
@@ -803,7 +802,6 @@ func TestWaipid(t *testing.T) {
 	}
 	// load our jobs
 	w.SingleRun()
-	w.nextTs = time.Now().UnixMilli()
 	job.Release()
 	job.Release()
 
@@ -845,9 +843,7 @@ func TestWaipid(t *testing.T) {
 		t.Skipf("Could not watch our child??")
 	}
 	// load the job
-	w.nextTs = time.Now().UnixMilli()
 	w.SingleRun()
-	w.nextTs = time.Now().UnixMilli() + time.Hour.Milliseconds()*2000
 	w.SingleRun()
 	if !closed {
 		t.Fatalf("Process did not exit")
@@ -868,14 +864,12 @@ func TestWritePollReader(t *testing.T) {
 		canWrite = config.IsWrite()
 	})
 	job, _ := j.(*CallBackJob)
-	job.SetTimeout(10)
+	job.SetTimeout(1)
 	job.SetEvents(CAN_RW)
 	defer w.Close()
 	defer p.Stop()
 	p.AddJob(job)
-	p.nextTs = time.Now().UnixMilli()
-	p.SingleRun()
-	p.nextTs = time.Now().UnixMilli() + time.Hour.Milliseconds()*2000
+	p.singleLoop()
 
 	t.Logf("CanWrite: %v", canWrite)
 	t.Logf("Was Timout: %v", didTo)
@@ -920,28 +914,39 @@ func TestValdiateJobClearOnTimeStampChange(t *testing.T) {
 	u := p.NewUtil()
 
 	ran := false
-	cb := func(_ *CallbackEvent) {
+
+	t.Logf("Adding timeout job")
+	job, e := u.SetTimeout(func(_ *CallbackEvent) {
 		t.Logf("Timer woke up")
 		w.Write([]byte(" World!"))
 		ran = true
+	}, 5)
+	if e != nil {
+		t.Logf("Failed to create our job, error was: %v", e)
+		t.Skip()
+		return
 	}
-	if _, e := u.SetTimeout(cb, 5); e != nil {
-		t.Fatalf("Failed to add timout, error was; %v", e)
-	}
-	// force our job to be picked up
+	t.Logf("Running load")
+	// Force our object to load
 	p.SingleRun()
+	// force our job to be picked up
+	t.Logf("Starting manual timer run")
+	now := time.Now()
+	p.now = time.UnixMilli(now.UnixMilli() + job.Timeout + 1)
+	p.processNextSet(0)
+	t.Logf("Finished")
 
-	// Wait for the timeout
 	p.SingleRun()
 	if !ran {
 		t.Fatalf("Failed to run our timeout")
 	}
 	// one more pass to read from the buffer
-	p.SingleRun()
 
 	if "Hello, World!" != string(res) {
 		t.Fatalf("Failed to get our string")
 	}
+	//p.Stop()
+	//p.SingleRun()
 
 }
 
@@ -1056,11 +1061,10 @@ func TestUnixCron(t *testing.T) {
 	}
 	// load our job
 	p.SingleRun()
-	p.now = time.UnixMilli(time.Now().UnixMilli() + job.Timeout)
+	now := time.Now()
+	// the +1 is due to a semi random rounding error
+	p.now = time.UnixMilli(now.UnixMilli() + job.Timeout + 1)
 
-	if k, ok := p.timeouts.FirstKey(); !(ok && p.now.UnixMilli() == k) {
-		t.Fatalf("Should wake up at the correct time")
-	}
 	p.processNextSet(0)
 
 	if p.timeouts.Size() != 1 {

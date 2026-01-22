@@ -82,7 +82,6 @@ type Worker struct {
 	fdjobs   map[int32]*wjc
 	timeouts *omap.SliceTree[int64, map[int64]Job]
 	jobs     map[int64]*wjc
-	nextTs   int64
 	closed   bool
 	locker   sync.RWMutex
 	now      time.Time
@@ -244,6 +243,7 @@ func (s *Worker) SingleRun() error {
 		return ERR_SHUTDOWN
 	}
 	sleep := s.nextState()
+
 	active, e := s.doPoll(sleep)
 	if e != nil {
 		return e

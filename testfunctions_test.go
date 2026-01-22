@@ -61,16 +61,28 @@ func createWJob(cb func(config *CallbackEvent)) (job Job, r *os.File, w *os.File
 	job = NewJobFromOsFileT(w, CAN_RW, 0, cb)
 	return
 }
+
+func (s *Worker) singleLoop() error {
+	active, e := s.doPoll(0)
+	if e != nil {
+		return e
+	}
+	s.now = time.Now()
+	s.processNextSet(active)
+	return nil
+}
+
 func (s *WorkerTestSet) singleLoop(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	fail := true
 
 	go func() {
-		s.Worker.nextTs = time.Now().UnixMilli()
-		s.Worker.SingleRun()
-		fail = false
 		defer cancel()
+		if s.Worker.singleLoop() != nil {
+			return
+		}
+		fail = false
 	}()
 
 	<-ctx.Done()
