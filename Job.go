@@ -8,7 +8,7 @@ import (
 var jobIdSeq *int64
 
 func init() {
-	var i int64 = -1
+	var i int64 = 0
 	jobIdSeq = &i
 }
 

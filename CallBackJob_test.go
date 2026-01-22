@@ -19,3 +19,7 @@ func TestCallBackPanic(t *testing.T) {
 	}
 	event.PollReadWrite()
 }
+
+func TestNewJobTimeout(t *testing.T) {
+	NewJobTimeout(0, func(ce *CallbackEvent) {})
+}

@@ -239,6 +239,10 @@ func (s *Worker) Start() error {
 }
 
 func (s *Worker) SingleRun() error {
+	if s.closed {
+		// if we are in shutdown mode.. well nothing to see here.. move along!
+		return ERR_SHUTDOWN
+	}
 	sleep := s.nextState()
 	active, e := s.doPoll(sleep)
 	if e != nil {

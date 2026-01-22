@@ -8,17 +8,18 @@ import (
 
 // Used to shutdown a new Job, when no events were aded
 var ERR_NO_EVENTS = errors.New("No watchEvents returned")
+var ERR_INVALID_JOBID = errors.New("Invalid JobId")
 
 // Lnix pipe buffer size is 65536, since we need a multiple of 8 we subtract 7
 var WORKER_BUFFER_SIZE = 0xffff - 7
 
 func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevents uint32, futureTimeOut int64, EventError error) {
-	if s.worker == nil {
+	worker := s.worker
+	if worker == nil {
 		EventError = ERR_SHUTDOWN
 		return
 	}
-	futureTimeOut = -1
-	worker := s.worker
+
 	if currentEvents&IN_ERROR != 0 {
 		watchEevents = 0
 		futureTimeOut = 0
@@ -37,7 +38,7 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 	}
 
 	watchEevents = CAN_READ
-	if ok := s.processBuffer(size, now); !ok {
+	if !s.processBuffer(size, now) {
 		return
 	}
 
@@ -52,6 +53,10 @@ CTRL_LOOP:
 		}
 		select {
 		case job := <-que:
+			if job.JobId() < 1 {
+				job.ClearPool(ERR_INVALID_JOBID)
+				continue
+			}
 			s.AddJob(job, now)
 		default:
 			// No more jobs to add
@@ -63,9 +68,6 @@ CTRL_LOOP:
 }
 
 func (s *controlJob) processBuffer(size int, now int64) (run bool) {
-	if s.worker == nil {
-		return
-	}
 	worker := s.worker
 	s.byteReader(size, func(jobid int64) {
 		if jobid == WAKEUP_THREAD {
@@ -97,10 +99,6 @@ func (s *controlJob) processBuffer(size int, now int64) (run bool) {
 
 // broken out to make this very unit testable!
 func (s *controlJob) byteReader(size int, cb func(int64)) {
-	if size == 0 {
-		return
-	}
-
 	// get first chunk
 	begin := len(s.backlog)
 	end := INT64_SIZE - begin
@@ -138,7 +136,7 @@ func (s *controlJob) byteReader(size int, cb func(int64)) {
 func (s *controlJob) AddJob(job Job, now int64) {
 	worker := s.worker
 
-	events, t, fd := job.SetPool(s.worker, now)
+	events, t, fd := job.SetPool(worker, now)
 	c := &wjc{
 		Job:    job,
 		nextTs: t,
@@ -196,13 +194,11 @@ func (s *controlJob) ClearPool(_ error) {
 	if s.worker != nil {
 		s.worker.timeouts.RemoveAll()
 		s.worker.closed = true
-		for id, job := range s.worker.jobs {
-			if id == s.jobId {
-				continue
-			}
+		for _, job := range s.worker.jobs {
 			if job.Fd() > -1 {
 				unix.EpollCtl(s.worker.epfd, unix.EPOLL_CTL_DEL, int(job.Fd()), nil)
 			}
+			job.InEventLoop()
 			job.ClearPool(ERR_SHUTDOWN)
 		}
 		unix.Close(s.worker.epfd)
@@ -226,8 +222,9 @@ func (s *controlJob) Fd() int32 {
 
 func newControlJob() *controlJob {
 	return &controlJob{
-		buffer:  make([]byte, WORKER_BUFFER_SIZE),
-		jobId:   NextJobId(),
+		buffer: make([]byte, WORKER_BUFFER_SIZE),
+		// Always set the control job to -3
+		jobId:   -3,
 		backlog: make([]byte, 0, INT64_SIZE),
 	}
 }

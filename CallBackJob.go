@@ -99,17 +99,10 @@ func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents uint
 	s.Lock.RLock()
 	defer s.Lock.RUnlock()
 	s.ran = false
-	if s.Timeout == 0 {
-		futureTimeOut = 0
-		NewEvents = s.Events
-		return
-	}
+
 	futureTimeOut = lastTimeout
 	NewEvents = s.Events
-	if lastTimeout == 0 {
-		futureTimeOut = now + s.Timeout
-
-	} else if lastTimeout <= now {
+	if lastTimeout <= now {
 
 		// if we got here.. we need to make sure the old timeout isn't bad
 		res := &CallbackEvent{

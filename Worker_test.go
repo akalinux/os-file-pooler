@@ -454,7 +454,8 @@ func TestTimeout(t *testing.T) {
 	var e error
 	var ok bool = false
 	job := &CallBackJob{
-		Timeout: 25,
+		Timeout:  25,
+		RawJobId: NextJobId(),
 		OnEventCallBack: func(c *CallbackEvent) {
 			if ok = c.InTimeout(); ok {
 				ts = time.Now().UnixMilli()
@@ -698,7 +699,7 @@ func TestUtilTimeout(t *testing.T) {
 	u := w.NewUtil()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	count := 0
-	_, e := u.SetTimeout(func() { count++ }, 10)
+	_, e := u.SetTimeout(func(_ *CallbackEvent) { count++ }, 10)
 	if e != nil {
 		t.Fatalf("Failed to spawn job")
 	}
@@ -884,4 +885,202 @@ func TestWritePollReader(t *testing.T) {
 		t.Fatalf("Failed, should be in a closed state")
 	}
 
+}
+
+func TestValdiateJobClearOnTimeStampChange(t *testing.T) {
+	p, _ := NewLocalWorker(2)
+
+	var r *os.File
+	var w *os.File
+	res := make([]byte, 0)
+	x, r, w := createRJob(func(config *CallbackEvent) {
+		if config.IsRead() {
+			buff := make([]byte, 1024)
+			n, _ := r.Read(buff)
+			res = append(res, buff[0:n]...)
+		}
+	})
+	j, _ := x.(*CallBackJob)
+	j.SetTimeout(50)
+	p.AddJob(j)
+	// force our job to be picked up
+	p.SingleRun()
+
+	w.Write([]byte("Hello,"))
+
+	defer func() {
+		w.Close()
+		p.Stop()
+		p.SingleRun()
+	}()
+	p.SingleRun()
+	if len(res) == 0 {
+		t.Fatalf("Expected the data to be read")
+	}
+	u := p.NewUtil()
+
+	ran := false
+	cb := func(_ *CallbackEvent) {
+		t.Logf("Timer woke up")
+		w.Write([]byte(" World!"))
+		ran = true
+	}
+	if _, e := u.SetTimeout(cb, 5); e != nil {
+		t.Fatalf("Failed to add timout, error was; %v", e)
+	}
+	// force our job to be picked up
+	p.SingleRun()
+
+	// Wait for the timeout
+	p.SingleRun()
+	if !ran {
+		t.Fatalf("Failed to run our timeout")
+	}
+	// one more pass to read from the buffer
+	p.SingleRun()
+
+	if "Hello, World!" != string(res) {
+		t.Fatalf("Failed to get our string")
+	}
+
+}
+
+func TestUpdateTimeoutOnly(t *testing.T) {
+	p, e := NewLocalWorker(1)
+	if e != nil {
+		t.Skip()
+	}
+	defer func() {
+		p.Stop()
+		p.SingleRun()
+	}()
+	u := p.NewUtil()
+
+	count := 0
+	var job *CallBackJob
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 1*time.Second)
+	done := make(chan any, 1)
+	job, e = u.SetInterval(func(event *CallbackEvent) {
+		count++
+		e = event.error
+		t.Logf("On Count; %d, error was: %v", count, e)
+		if count == 2 {
+			done <- nil
+			cancel()
+		}
+	}, 3000)
+	if e != nil {
+		t.SkipNow()
+	}
+
+	// load the job
+	p.SingleRun()
+	var timeout int64
+	var ok bool
+	if timeout, ok = p.timeouts.FirstKey(); !ok {
+		t.Fatalf("Failed to load our job?")
+	}
+	job.SetTimeout(2)
+	// reconfigure the job
+	t.Logf("Reloading job config")
+	p.SingleRun()
+	// run the job
+
+	if new_ts, ok := p.timeouts.FirstKey(); !ok || timeout == new_ts {
+		t.Fatalf("Did not cofnugre out job, new ts: %d, old ts: %d", new_ts, timeout)
+	} else {
+		timeout = new_ts
+	}
+	if p.timeouts.Size() != 1 {
+		t.Fatalf("Should only have one job, have %d", p.timeouts.Size())
+	}
+
+	t.Logf("Job should Run here")
+	go func() {
+		for {
+			select {
+			case <-done:
+				cancel2()
+				return
+			default:
+				p.SingleRun()
+			}
+		}
+	}()
+	<-ctx.Done()
+
+	// Run the updated job
+	t.Logf("Context window completed")
+
+	if count != 2 {
+		diff := time.Now().UnixMilli() - timeout
+
+		t.Fatalf("2nd pass did not run?, timeout was: %d, time diff: %d, JobId: %d", job.Timeout, diff, job.JobId())
+		return
+	}
+
+	<-ctx2.Done()
+	t.Logf("Entering shutdown phaze")
+	// shut down
+	p.Stop()
+	p.SingleRun()
+	if e == nil {
+		t.Fatalf("Never got shutdown notice?")
+	}
+	t.Logf("Error was: %v", e)
+
+	if count != 3 && e != nil {
+		t.Fatalf("Expected job to run 3 times, ran: %d", count)
+	}
+}
+
+func TestUnixCron(t *testing.T) {
+
+	cron := "17 * * * *"
+	p, _ := NewLocalWorker(1)
+	defer func() {
+		p.Stop()
+		p.SingleRun()
+	}()
+	u := p.NewUtil()
+	count := 0
+	var e error
+	job, e := u.SetCron(func(event *CallbackEvent) {
+		e = event.error
+		t.Logf("Callback ran, error was: %v", e)
+		count++
+	}, cron)
+	if e != nil {
+		t.Fatalf("Should have set this cronjob up!")
+	}
+	// load our job
+	p.SingleRun()
+	p.now = time.UnixMilli(time.Now().UnixMilli() + job.Timeout)
+
+	if k, ok := p.timeouts.FirstKey(); !(ok && p.now.UnixMilli() == k) {
+		t.Fatalf("Should wake up at the correct time")
+	}
+	p.processNextSet(0)
+
+	if p.timeouts.Size() != 1 {
+		t.Fatalf("job did not re-schedule itself???")
+	}
+	t.Logf("Current time is:           %s", time.Now().String())
+	t.Logf("Using future timestamp of: %s", p.now.String())
+
+	if count != 1 && e != nil {
+		t.Fatalf("Expected a single run, got, %d and error of: %v", count, e)
+	}
+	p.Stop()
+	p.SingleRun()
+
+	if e == nil || count != 2 {
+		t.Fatalf("Should have gotten a shutdown error: %v, count: %d", e, count)
+	}
+
+	_, e = u.SetCron(func(event *CallbackEvent) {}, "Bad Cron job")
+	if e == nil {
+		t.Fatalf("Should fail to parse a bad cron string!")
+	}
 }

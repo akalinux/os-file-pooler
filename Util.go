@@ -13,15 +13,14 @@ type Util struct {
 	PoolOrWorkerContainer
 }
 
-// Creates a timout that runs once executing the cb function provided. The timeout value is in milliseconds. You can terminate the timeout,
+// Creates a timer that runs once executing the cb function provided. The timeout value is in milliseconds. You can terminate the timeout,
 // by calling the *CallBackJob.Release() method.
-func (s *Util) SetTimeout(cb func(), timeout int64) (*CallBackJob, error) {
+func (s *Util) SetTimeout(cb func(event *CallbackEvent), timeout int64) (*CallBackJob, error) {
 	job := &CallBackJob{
-		FdId: -1,
+		FdId:     -1,
+		RawJobId: NextJobId(),
 		OnEventCallBack: func(event *CallbackEvent) {
-			if event.InTimeout() {
-				cb()
-			}
+			cb(event)
 		},
 		Timeout: timeout,
 	}
@@ -32,13 +31,16 @@ func (s *Util) SetTimeout(cb func(), timeout int64) (*CallBackJob, error) {
 // Creates an timer that will continue to run at regular intervals until terminatedd.  The interval value is in milliseconds.  To terminate the
 // can either calling the *CallBackJob.Release() method or by calling the *CallbackEvent.Release() method.
 func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*CallBackJob, error) {
-	job := &CallBackJob{
-		FdId: -1,
+
+	var job *CallBackJob
+	job = &CallBackJob{
+		FdId:     -1,
+		RawJobId: NextJobId(),
 		OnEventCallBack: func(event *CallbackEvent) {
 			if event.InTimeout() {
-				event.SetTimeout(interval)
-				cb(event)
+				event.SetTimeout(job.Timeout)
 			}
+			cb(event)
 		},
 		Timeout: interval,
 	}
@@ -60,8 +62,9 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
 		pid: pid,
 		fd:  &pfd,
 		CallBackJob: &CallBackJob{
-			FdId:   int32(pfd),
-			Events: CAN_READ,
+			FdId:     int32(pfd),
+			Events:   CAN_READ,
+			RawJobId: NextJobId(),
 			OnEventCallBack: func(event *CallbackEvent) {
 
 				if pfd == -1 {
@@ -87,7 +90,7 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
 	return job, s.AddJob(job)
 }
 
-func (s *Util) SetCron(cb func(), cron string) (*CallBackJob, error) {
+func (s *Util) SetCron(cb func(event *CallbackEvent), cron string) (*CallBackJob, error) {
 
 	expr, err := cronexpr.Parse(cron)
 	if err != nil {
@@ -105,10 +108,11 @@ func (s *Util) SetCron(cb func(), cron string) (*CallBackJob, error) {
 			interval = next.UnixMilli() - now.UnixMilli()
 			if event.InTimeout() {
 				event.SetTimeout(interval)
-				cb()
 			}
+			cb(event)
 		},
-		Timeout: interval,
+		RawJobId: NextJobId(),
+		Timeout:  interval,
 	}
 
 	return job, s.AddJob(job)
