@@ -2,9 +2,11 @@ package osfp
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/akalinux/os-file-pooler/internal/sec"
+	Cmd "github.com/akalinux/os-file-pooler/pkg/Cmd"
 	"github.com/aptible/supercronic/cronexpr"
 	"golang.org/x/sys/unix"
 )
@@ -32,13 +34,12 @@ func (s *Util) SetTimeout(cb func(event *CallbackEvent), timeout int64) (*CallBa
 // can either calling the *CallBackJob.Release() method or by calling the *CallbackEvent.Release() method.
 func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*CallBackJob, error) {
 
-	var job *CallBackJob
-	job = &CallBackJob{
+	job := &CallBackJob{
 		FdId:     -1,
 		RawJobId: NextJobId(),
 		OnEventCallBack: func(event *CallbackEvent) {
 			if event.InTimeout() {
-				event.SetTimeout(job.Timeout)
+				event.SetTimeout(event.timeout)
 			}
 			cb(event)
 		},
@@ -48,8 +49,74 @@ func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*Call
 	return job, s.AddJob(job)
 }
 
+func (s *Util) Open2(cb func(*WaitPidEvent), name string, args ...string) (job *CmdJob, stdin *os.File, stdout *os.File, err error) {
+	cmd := Cmd.NewCmd(name, args...)
+	if stdin, err = cmd.NewStdin(); err != nil {
+		return
+	}
+	if stdout, err = cmd.NewStdout(); err != nil {
+		cmd.CloseFd()
+		return
+	}
+	process, err := cmd.Start()
+	if err != nil {
+		cmd.CloseFd()
+		return
+	}
+	wj, err := s.WaitPid(process.Pid, func(wpe *WaitPidEvent) {
+		process.Release()
+		cb(wpe)
+	})
+	if err != nil {
+		cmd.CloseFd()
+		process.Kill()
+		return
+	}
+	job = &CmdJob{
+		WaitPidJob: wj,
+		Process:    process,
+	}
+
+	return
+}
+
+func (s *Util) Open3(cb func(*WaitPidEvent), name string, args ...string) (job *CmdJob, stdin *os.File, stdout *os.File, stderr *os.File, err error) {
+	cmd := Cmd.NewCmd(name, args...)
+	if stdin, err = cmd.NewStdin(); err != nil {
+		return
+	}
+	if stdout, err = cmd.NewStdout(); err != nil {
+		cmd.CloseFd()
+		return
+	}
+	if stderr, err = cmd.NewStderr(); err != nil {
+		cmd.CloseFd()
+		return
+	}
+	process, err := cmd.Start()
+	if err != nil {
+		cmd.CloseFd()
+		return
+	}
+	wj, err := s.WaitPid(process.Pid, func(wpe *WaitPidEvent) {
+		process.Release()
+		cb(wpe)
+	})
+	if err != nil {
+		cmd.CloseFd()
+		process.Kill()
+		return
+	}
+	job = &CmdJob{
+		WaitPidJob: wj,
+		Process:    process,
+	}
+
+	return
+}
+
 // Watches a given pid and runs cb on exit.  The process exit code can be found in *WaitPidEvent.ExitCode.
-func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (Job, error) {
+func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (*WaitPidJob, error) {
 	pfd, err := unix.PidfdOpen(pid, unix.PIDFD_NONBLOCK)
 
 	if err != nil {
@@ -103,9 +170,9 @@ func (s *Util) SetCron(cb func(event *CallbackEvent), cron string) (*CallBackJob
 	job := &CallBackJob{
 		FdId: -1,
 		OnEventCallBack: func(event *CallbackEvent) {
-			now = event.GetNow()
-			next = expr.Next(now)
-			interval = next.UnixMilli() - now.UnixMilli()
+			now := event.GetNow()
+			next := expr.Next(now)
+			interval := next.UnixMilli() - now.UnixMilli()
 			if event.InTimeout() {
 				event.SetTimeout(interval)
 			}

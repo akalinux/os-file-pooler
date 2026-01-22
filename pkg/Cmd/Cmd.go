@@ -58,6 +58,18 @@ func (s *Cmd) Start() (*os.Process, error) {
 	return os.StartProcess(s.Name, s.Args, s.OsProcAttr())
 }
 
+func (s *Cmd) CloseFd() {
+	if s.Stdin.Write != nil {
+		s.Stdin.Write.Close()
+	}
+	if s.Stdout.Write != nil {
+		s.Stdout.Write.Close()
+	}
+	if s.Stderr.Write != nil {
+		s.Stderr.Write.Close()
+	}
+}
+
 func (s *Cmd) newPs(set *RwSet, side bool) (*os.File, error) {
 	if set.Read != nil || set.Write != nil {
 		return nil, errors.New("Reader/Writer all ready defined!")
