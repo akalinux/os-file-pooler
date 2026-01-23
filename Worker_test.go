@@ -1088,3 +1088,181 @@ func TestUnixCron(t *testing.T) {
 		t.Fatalf("Should fail to parse a bad cron string!")
 	}
 }
+
+func TestOpen2(t *testing.T) {
+
+	p, _ := NewLocalWorker(2)
+	u := p.NewUtil()
+	defer p.Stop()
+	defer p.singleLoop()
+	code := 181 // Bull Shannon IQ!
+	buff := make([]byte, 12)
+	size := 0
+	pcount := 0
+	job, stdin, stdout, e := u.Open2(
+		func(wpe *WaitPidEvent) {
+			pcount++
+			code = wpe.ExitCode
+			t.Logf("Wait pid got called: %d, exit code: %d", pcount, code)
+
+		},
+		"/usr/bin/echo", "\"0.001\"",
+	)
+	if e != nil {
+		t.Fatalf("Failed to Spawn Job, error was: %v", e)
+		return
+	}
+	defer stdin.Close()
+	defer stdout.Close()
+
+	count := 0
+	_, e = u.WatchRead(func(ce *CallbackEvent) {
+		count++
+		t.Logf("Getting called: %d", count)
+		if ce.InError() {
+			e = ce.error
+			t.Logf("Error Polling stdout: %v", e)
+		} else {
+
+			size, e = stdout.Read(buff)
+			t.Logf("Got chunk: %s", string(buff))
+		}
+		ce.Release()
+	}, stdout, 2000)
+	if e != nil {
+		t.Fatalf("Unknown issue setting up reader: %v", e)
+		return
+	}
+
+	t.Logf("Working with pid: %d", job.Pid)
+	// load our jobs, we have 2
+	//p.SingleRun()
+	p.singleLoop()
+	if p.JobCount() != 2 {
+		t.Fatalf("Something went wrong?, epected 2 jobs, got %d", p.JobCount())
+	}
+
+	t.Logf("doing Single run")
+	for pass := range 4 {
+		// should only need 2 passes, but we may need more
+		t.Logf("On pass:%d", pass)
+		p.SingleRun()
+		if e != nil {
+			t.Fatalf("Got an error")
+			break
+		}
+		if p.JobCount() == 0 {
+			break
+		}
+		t.Logf("We have a total of: %d jobs remaining", p.JobCount())
+	}
+	if code != 0 || size == 0 {
+		t.Fatalf("Expected code: 0, got: %d, expected size: !=0, got 0", code)
+	}
+}
+
+func TestOpen3(t *testing.T) {
+
+	p, _ := NewLocalWorker(0)
+	u := p.NewUtil()
+	defer p.Stop()
+	defer p.singleLoop()
+	code := 181 // Bull Shannon IQ!
+	buff := make([]byte, 55)
+	size := 0
+	pcount := 0
+	job, stdin, stdout, stderr, e := u.Open3(
+		func(wpe *WaitPidEvent) {
+			pcount++
+			code = wpe.ExitCode
+			t.Logf("**** Wait pid got called: %d, exit code: %d", pcount, code)
+
+		},
+		"bash", "-c", "cat;echo 'force extra read';echo 'stdin was closed!'>&2;exit 64",
+	)
+	if e != nil {
+		t.Fatalf("Failed to Spawn Job, error was: %v", e)
+		return
+	}
+	defer stdin.Close()
+	defer stdout.Close()
+	defer stderr.Close()
+
+	count := 0
+	_, e = u.WatchRead(func(ce *CallbackEvent) {
+		count++
+		t.Logf("Stdout read pass: %d", count)
+		if ce.InError() {
+			if count < 3 {
+				e = ce.error
+			}
+			t.Logf("Error Polling stdout: %v", ce.Error())
+
+		} else {
+
+			size, e = stdout.Read(buff)
+			t.Logf("Stdout Got chunk: %s", string(buff[0:size]))
+		}
+	}, stdout, 2000)
+	if e != nil {
+		t.Fatalf("Unknown issue setting up reader: %v", e)
+		return
+	}
+
+	ecount := 0
+
+	_, e = u.WatchRead(func(ce *CallbackEvent) {
+		ecount++
+		if ce.InError() {
+			e = ce.error
+			t.Logf("Error Polling stdout: %v", e)
+		} else {
+
+			size, e = stderr.Read(buff)
+			t.Logf("Stderr Got chunk: %s", string(buff[0:size]))
+		}
+		ce.Release()
+	}, stderr, 2000)
+	if e != nil {
+		t.Fatalf("Unknown issue setting up reader: %v", e)
+		return
+	}
+
+	t.Logf("Working with pid: %d", job.Pid)
+	// load our jobs, we have 2
+	//p.SingleRun()
+	p.singleLoop()
+	if p.JobCount() != 3 {
+		t.Fatalf("Something went wrong?, epected 3 jobs, got %d", p.JobCount())
+	}
+
+	stdin.Write([]byte("Hello, "))
+	t.Logf("doing Single run")
+	for pass := range 10 {
+		// should only need 2 passes, but we may need more
+		t.Logf("On pass:%d", pass)
+		//p.SingleRun()
+		p.SingleRun()
+		if e != nil {
+			//t.Fatalf("Got an error, %v", e)
+			break
+		}
+		switch count {
+		case 1:
+			t.Logf("Writing 2nd chunl")
+			stdin.Write([]byte("World!\n"))
+		case 2:
+			t.Logf("Closing stdin")
+			stdin.Close()
+		}
+		if p.JobCount() == 0 {
+			t.Logf("All Jobs completed!")
+			break
+		}
+		t.Logf("We have a total of: %d jobs remaining", p.JobCount())
+	}
+
+	if code != 64 || size == 0 || ecount == 0 {
+		t.Fatalf("Expected code: 64, got: %d, expected size: !=0, got 0", code)
+	}
+}

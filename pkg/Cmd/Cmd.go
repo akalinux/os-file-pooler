@@ -5,6 +5,7 @@ package cmd
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"syscall"
 )
 
@@ -21,52 +22,59 @@ type Cmd struct {
 }
 
 func NewCmd(name string, args ...string) *Cmd {
-	dir, err := os.Getwd()
-	if err != nil {
-		dir = "."
-	}
 	return &Cmd{
-		Name:        name,
-		Args:        args,
-		SysProcAttr: DefaultSysProcAttr(),
-		Dir:         dir,
+		Name: name,
+		Args: args,
 
-		Env:    os.Environ(),
 		Stdin:  &RwSet{},
 		Stdout: &RwSet{},
 		Stderr: &RwSet{},
 	}
 }
 
-func (s *Cmd) OsProcAttr() *os.ProcAttr {
-
-	attr := &os.ProcAttr{
-		Dir: s.Dir,
-		Env: s.Env,
-		Files: []*os.File{
-			s.Stdin.Read,
-			s.Stdout.Write,
-			s.Stderr.Write,
-		},
-		Sys: s.SysProcAttr,
+func (s *Cmd) Start() (proc *os.Process, err error) {
+	cmd := exec.Command(s.Name, s.Args...)
+	if s.Stdin.Read != nil {
+		cmd.Stdin = s.Stdin.Read
+	}
+	if s.Stdout.Write != nil {
+		cmd.Stdout = s.Stdout.Write
 	}
 
-	return attr
-}
+	if s.Stderr.Write != nil {
+		cmd.Stderr = s.Stderr.Write
+	}
+	err = cmd.Start()
 
-func (s *Cmd) Start() (*os.Process, error) {
-	return os.StartProcess(s.Name, s.Args, s.OsProcAttr())
+	if err != nil {
+		s.CloseFd()
+		return
+	}
+	proc = cmd.Process
+	if s.Stderr.Write != nil {
+		s.Stderr.Write.Close()
+	}
+	if s.Stdout.Write != nil {
+		s.Stdout.Write.Close()
+	}
+	if s.Stdin.Read != nil {
+		s.Stdin.Read.Close()
+	}
+	return
 }
 
 func (s *Cmd) CloseFd() {
 	if s.Stdin.Write != nil {
 		s.Stdin.Write.Close()
+		s.Stdin.Read.Close()
 	}
 	if s.Stdout.Write != nil {
 		s.Stdout.Write.Close()
+		s.Stdout.Read.Close()
 	}
 	if s.Stderr.Write != nil {
 		s.Stderr.Write.Close()
+		s.Stderr.Read.Close()
 	}
 }
 
@@ -96,32 +104,4 @@ func (s *Cmd) NewStdout() (*os.File, error) {
 
 func (s *Cmd) NewStderr() (*os.File, error) {
 	return s.newPs(s.Stderr, false)
-}
-
-func DefaultCreds() *syscall.Credential {
-	glist, err := os.Getgroups()
-
-	groups := make([]uint32, len(glist))
-	if err != nil {
-		for i, group := range glist {
-			groups[i] = uint32(group)
-		}
-	}
-
-	return &syscall.Credential{
-		Uid:    uint32(os.Getegid()),
-		Gid:    uint32(os.Getegid()),
-		Groups: groups,
-	}
-}
-
-// Generates the our default SysProcAttr.
-func DefaultSysProcAttr() *syscall.SysProcAttr {
-
-	return &syscall.SysProcAttr{
-		Credential: DefaultCreds(),
-		Setsid:     true, // detach by default
-		Pdeathsig:  syscall.SIGTERM,
-		Noctty:     true,
-	}
 }

@@ -50,67 +50,55 @@ func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*Call
 }
 
 func (s *Util) Open2(cb func(*WaitPidEvent), name string, args ...string) (job *CmdJob, stdin *os.File, stdout *os.File, err error) {
+	return s.open(func(c *Cmd.Cmd) error { return nil }, cb, name, args...)
+}
+func (s *Util) open(bfeoreStart func(*Cmd.Cmd) error, cb func(*WaitPidEvent), name string, args ...string) (job *CmdJob, stdin *os.File, stdout *os.File, err error) {
+
 	cmd := Cmd.NewCmd(name, args...)
 	if stdin, err = cmd.NewStdin(); err != nil {
+		cmd.CloseFd()
 		return
 	}
+
 	if stdout, err = cmd.NewStdout(); err != nil {
 		cmd.CloseFd()
 		return
 	}
-	process, err := cmd.Start()
-	if err != nil {
+
+	if err = bfeoreStart(cmd); err != nil {
 		cmd.CloseFd()
 		return
 	}
-	wj, err := s.WaitPid(process.Pid, func(wpe *WaitPidEvent) {
-		process.Release()
+	//cmd.Stderr = cmd.Stdout
+	var proc *os.Process
+	if proc, err = cmd.Start(); err != nil {
+		cmd.CloseFd()
+		return
+	}
+	wp, err := s.WaitPid(proc.Pid, func(wpe *WaitPidEvent) {
+		proc.Release()
+		wpe.Release()
 		cb(wpe)
 	})
 	if err != nil {
 		cmd.CloseFd()
-		process.Kill()
+		proc.Kill()
 		return
 	}
 	job = &CmdJob{
-		WaitPidJob: wj,
-		Process:    process,
+		Process:    proc,
+		WaitPidJob: wp,
 	}
 
 	return
 }
 
 func (s *Util) Open3(cb func(*WaitPidEvent), name string, args ...string) (job *CmdJob, stdin *os.File, stdout *os.File, stderr *os.File, err error) {
-	cmd := Cmd.NewCmd(name, args...)
-	if stdin, err = cmd.NewStdin(); err != nil {
-		return
-	}
-	if stdout, err = cmd.NewStdout(); err != nil {
-		cmd.CloseFd()
-		return
-	}
-	if stderr, err = cmd.NewStderr(); err != nil {
-		cmd.CloseFd()
-		return
-	}
-	process, err := cmd.Start()
-	if err != nil {
-		cmd.CloseFd()
-		return
-	}
-	wj, err := s.WaitPid(process.Pid, func(wpe *WaitPidEvent) {
-		process.Release()
-		cb(wpe)
-	})
-	if err != nil {
-		cmd.CloseFd()
-		process.Kill()
-		return
-	}
-	job = &CmdJob{
-		WaitPidJob: wj,
-		Process:    process,
-	}
+
+	job, stdin, stdout, err = s.open(func(c *Cmd.Cmd) error {
+		stderr, err = c.NewStderr()
+		return err
+	}, cb, name, args...)
 
 	return
 }
@@ -182,5 +170,16 @@ func (s *Util) SetCron(cb func(event *CallbackEvent), cron string) (*CallBackJob
 		Timeout:  interval,
 	}
 
+	return job, s.AddJob(job)
+}
+
+func (s *Util) WatchRead(cb func(*CallbackEvent), file *os.File, msTimeout int64) (job Job, err error) {
+	job = &CallBackJob{
+		RawJobId:        NextJobId(),
+		Timeout:         msTimeout,
+		Events:          CAN_READ,
+		OnEventCallBack: cb,
+		FdId:            int32(file.Fd()),
+	}
 	return job, s.AddJob(job)
 }
