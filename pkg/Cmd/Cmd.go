@@ -1,9 +1,6 @@
 package cmd
 
-// https://stackoverflow.com/questions/23031752/start-a-process-in-go-and-detach-from-it
-// https://cs.opensource.google/go/go/+/refs/tags/go1.25.5:src/os/exec/exec.go
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"syscall"
@@ -79,9 +76,7 @@ func (s *Cmd) CloseFd() {
 }
 
 func (s *Cmd) newPs(set *RwSet, side bool) (*os.File, error) {
-	if set.Read != nil || set.Write != nil {
-		return nil, errors.New("Reader/Writer all ready defined!")
-	}
+
 	r, w, e := os.Pipe()
 	if e != nil {
 		return nil, e

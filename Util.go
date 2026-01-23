@@ -1,5 +1,7 @@
 package osfp
 
+// low level tls stuffs
+//  https://stackoverflow.com/questions/71366504/low-level-tls-handshake
 import (
 	"fmt"
 	"os"
@@ -69,7 +71,6 @@ func (s *Util) open(bfeoreStart func(*Cmd.Cmd) error, cb func(*WaitPidEvent), na
 		cmd.CloseFd()
 		return
 	}
-	//cmd.Stderr = cmd.Stdout
 	var proc *os.Process
 	if proc, err = cmd.Start(); err != nil {
 		cmd.CloseFd()
