@@ -1184,9 +1184,7 @@ func TestOpen3(t *testing.T) {
 		t.Fatalf("Failed to Spawn Job, error was: %v", e)
 		return
 	}
-	defer stdin.Close()
-	defer stdout.Close()
-	defer stderr.Close()
+	defer job.closeFd()
 
 	count := 0
 	_, e = u.WatchRead(func(ce *CallbackEvent) {
