@@ -21,8 +21,7 @@ type Util struct {
 // by calling the *CallBackJob.Release() method.
 func (s *Util) SetTimeout(cb func(event *CallbackEvent), timeout int64) (*CallBackJob, error) {
 	job := &CallBackJob{
-		FdId:     -1,
-		RawJobId: NextJobId(),
+		FdId: -1,
 		OnEventCallBack: func(event *CallbackEvent) {
 			cb(event)
 		},
@@ -37,8 +36,7 @@ func (s *Util) SetTimeout(cb func(event *CallbackEvent), timeout int64) (*CallBa
 func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*CallBackJob, error) {
 
 	job := &CallBackJob{
-		FdId:     -1,
-		RawJobId: NextJobId(),
+		FdId: -1,
 		OnEventCallBack: func(event *CallbackEvent) {
 			if event.InTimeout() {
 				event.SetTimeout(event.timeout)
@@ -118,9 +116,8 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (*WaitPidJob, error) {
 		pid: pid,
 		fd:  &pfd,
 		CallBackJob: &CallBackJob{
-			FdId:     int32(pfd),
-			Events:   CAN_READ,
-			RawJobId: NextJobId(),
+			FdId:   int32(pfd),
+			Events: CAN_READ,
 			OnEventCallBack: func(event *CallbackEvent) {
 
 				if pfd == -1 {
@@ -167,8 +164,7 @@ func (s *Util) SetCron(cb func(event *CallbackEvent), cron string) (*CallBackJob
 			}
 			cb(event)
 		},
-		RawJobId: NextJobId(),
-		Timeout:  interval,
+		Timeout: interval,
 	}
 
 	return job, s.AddJob(job)
@@ -176,7 +172,6 @@ func (s *Util) SetCron(cb func(event *CallbackEvent), cron string) (*CallBackJob
 
 func (s *Util) WatchRead(cb func(*CallbackEvent), file *os.File, msTimeout int64) (job Job, err error) {
 	job = &CallBackJob{
-		RawJobId:        NextJobId(),
 		Timeout:         msTimeout,
 		Events:          CAN_READ,
 		OnEventCallBack: cb,

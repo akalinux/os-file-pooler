@@ -1,24 +1,5 @@
 package osfp
 
-import (
-	"sync/atomic"
-)
-
-// Internal job sequence id
-var jobIdSeq *int64
-
-func init() {
-	var i int64 = 0
-	jobIdSeq = &i
-}
-
-const JOB_ID_ADD_ONE int64 = 1
-
-// Thread safe function used to generate new JobIds
-func NextJobId() int64 {
-	return atomic.AddInt64(jobIdSeq, JOB_ID_ADD_ONE)
-}
-
 // This is the core Job interface used by the Worker internals.
 //
 // # Events
@@ -60,7 +41,7 @@ type Job interface {
 
 	// Sets the current Worker. This method is called when a Job is added to a Worker in the pool.
 	// A timeout only based job is a job where the fd returned is -1.
-	SetPool(worker *Worker, now int64) (watchEevents uint32, futureTimeOut int64, fd int32)
+	SetPool(worker *Worker, now int64, jobid int64) (watchEevents uint32, futureTimeOut int64, fd int32)
 
 	// This is called when Job is being removed from the pool.
 	// Make sure to remove the refernce of the current worker when implementing this method.

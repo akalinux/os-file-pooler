@@ -9,7 +9,6 @@ import (
 	"slices"
 	"sync"
 	"time"
-	"unsafe"
 
 	omap "github.com/akalinux/orderedmap"
 	"golang.org/x/sys/unix"
@@ -29,21 +28,6 @@ var ERR_QUE_FULL = errors.New("Queue is full")
 const INT64_SIZE = 8
 
 const WAKEUP_THREAD = -1
-
-func int64ToBytes(s int64) []byte {
-	d := make([]byte, INT64_SIZE)
-	*(*int64)(unsafe.Pointer(&d[0])) = s
-	return d
-}
-
-func bytesToInt64(s []byte) int64 {
-	var d int64
-	copy(
-		(*[INT64_SIZE]byte)(unsafe.Pointer(&d))[0:INT64_SIZE],
-		s[0:INT64_SIZE],
-	)
-	return d
-}
 
 // https://man7.org/linux/man-pages/man2/poll.2.html
 const (
@@ -87,6 +71,10 @@ type Worker struct {
 	now      time.Time
 	events   []unix.EpollEvent
 	ctrl     *controlJob
+	state    byte
+	pending  []map[int64]any
+	buffer   []byte
+	jobId    int64
 }
 
 func NewLocalWorker(limit int) (worker *Worker, osErr error) {
@@ -117,6 +105,11 @@ func NewStandAloneWorker() (worker *Worker, osErr error) {
 	return NewLocalWorker(DEFAULT_WORKER_HANDLES)
 }
 
+func (s *Worker) nextJobId() int64 {
+	s.jobId++
+	return s.jobId
+}
+
 func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, limit int) (*Worker, error) {
 
 	// create in level not edge mode!
@@ -137,11 +130,16 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 		fdjobs:   make(map[int32]*wjc, limit+1),
 		jobs:     make(map[int64]*wjc, limit+1),
 		timeouts: omap.NewSliceTree[int64, map[int64]Job](limit, cmp.Compare),
+		pending: []map[int64]any{
+			make(map[int64]any, UNLIMITED_QUE_SIZE),
+			make(map[int64]any, UNLIMITED_QUE_SIZE),
+		},
+		buffer: make([]byte, WORKER_BUFFER_SIZE),
 	}
 
 	cg := newControlJob()
 	s.ctrl = cg
-	_, _, jfd := cg.SetPool(s, time.Now().UnixMilli())
+	_, _, jfd := cg.SetPool(s, time.Now().UnixMilli(), -2)
 	e = unix.EpollCtl(epfd, unix.EPOLL_CTL_ADD, int(jfd), &unix.EpollEvent{Events: CAN_READ, Fd: jfd})
 	if e != nil {
 		// give up and close here
@@ -179,17 +177,25 @@ func (s *Worker) pushJobConfig(id int64) error {
 	s.locker.Lock()
 	defer s.locker.Unlock()
 
-	size, e := unix.Write(int(s.write.Fd()), int64ToBytes(id))
-	//size, e := s.write.Write(int64ToBytes(id))
+	_, e := unix.Write(int(s.write.Fd()), []byte{1})
+	s.pending[s.state][id] = nil
 	if e != nil {
 		return e
 	}
-	// safer than it looks, we only write in blocks of 8 bytes
-	if size != INT64_SIZE {
-		return ERR_QUE_FULL
-	}
 
 	return nil
+}
+
+// what ever method calls this should call  clear on the returned map when done processing.
+func (s *Worker) getChanges() (m map[int64]any, e error) {
+	s.locker.RLock()
+	defer s.locker.RUnlock()
+	_, e = unix.Read(int(s.read.Fd()), s.buffer)
+	state := s.state
+	// alternate between odd and even
+	s.state = (state + 1) & 1
+	m = s.pending[state]
+	return
 }
 
 func (s *Worker) LocalPoolUsage() (usage, limit int) {
@@ -211,17 +217,9 @@ func (s *Worker) wakeup() (err error) {
 		return ERR_SHUTDOWN
 	}
 
-	size, err := unix.Write(int(s.write.Fd()), int64ToBytes(WAKEUP_THREAD))
-	//size, err := s.write.Write(int64ToBytes(WAKEUP_THREAD))
+	_, err = unix.Write(int(s.write.Fd()), []byte{1})
 	if err != nil {
 		s.write.Close()
-	} else {
-		// safer than it looks, we always write in multiples of 8
-		// so we will have 0 on a falure
-		if size != INT64_SIZE {
-			return ERR_QUE_FULL
-		}
-		return err
 	}
 	return
 }

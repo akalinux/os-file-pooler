@@ -16,7 +16,7 @@ type CallBackJob struct {
 	FdId            int32
 	Lock            sync.RWMutex
 	ran             bool
-	RawJobId        int64
+	internalJobId   int64
 }
 
 func NewJobFromFdT(fd int32, watchEvents uint32, timeout int64, cb func(*CallbackEvent)) (job *CallBackJob) {
@@ -25,7 +25,6 @@ func NewJobFromFdT(fd int32, watchEvents uint32, timeout int64, cb func(*Callbac
 		Timeout:         timeout,
 		FdId:            fd,
 		Events:          watchEvents,
-		RawJobId:        NextJobId(),
 	}
 
 	return
@@ -48,7 +47,7 @@ func (s *CallBackJob) SetTimeout(t int64) {
 	}
 	s.Timeout = t
 	if s.worker != nil {
-		s.worker.pushJobConfig(s.RawJobId)
+		s.worker.pushJobConfig(s.internalJobId)
 	}
 }
 
@@ -128,9 +127,10 @@ func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents uint
 }
 
 // Sets the current Worker. This method is called when a Job is added to a Worker in the pool.
-func (s *CallBackJob) SetPool(worker *Worker, now int64) (watchEevents uint32, futureTimeOut int64, fd int32) {
+func (s *CallBackJob) SetPool(worker *Worker, now int64, jobId int64) (watchEevents uint32, futureTimeOut int64, fd int32) {
 	s.Lock.Lock()
 	defer s.Lock.Unlock()
+	s.internalJobId = jobId
 	s.ran = false
 	if s.Timeout != 0 {
 		futureTimeOut = now + s.Timeout
@@ -167,7 +167,7 @@ func (s *CallBackJob) SetEvents(events uint32) error {
 	s.Events = events
 	s.Timeout = 0
 	if s.worker != nil {
-		return s.worker.pushJobConfig(s.RawJobId)
+		return s.worker.pushJobConfig(s.internalJobId)
 	}
 	return nil
 }
@@ -177,7 +177,7 @@ func (s *CallBackJob) Release() error {
 	s.Events = CAN_END
 	s.Timeout = 0
 	if s.worker != nil {
-		return s.worker.pushJobConfig(s.RawJobId)
+		return s.worker.pushJobConfig(s.internalJobId)
 	}
 	return nil
 }
@@ -199,7 +199,7 @@ func (s *CallBackJob) SetCallback(cb func(*CallbackEvent)) {
 }
 
 func (s *CallBackJob) JobId() int64 {
-	return s.RawJobId
+	return s.internalJobId
 }
 
 func (s *CallBackJob) Fd() int32 {

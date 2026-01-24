@@ -8,70 +8,6 @@ import (
 	"time"
 )
 
-func TestLocalConversion(t *testing.T) {
-	var i int64
-	for i = -2; i < 255; i++ {
-
-		if check := bytesToInt64(int64ToBytes(i)); check != i {
-			t.Fatalf("Expected; %d, got %d", i, check)
-		}
-	}
-
-}
-
-func TestCtrlJobByteReader(t *testing.T) {
-	buff := int64ToBytes(-1)
-	s := &controlJob{
-		buffer:  []byte{buff[0]},
-		backlog: make([]byte, 0, INT64_SIZE),
-	}
-	var check int64
-	var count int64
-	onInt := func(c int64) {
-		count++
-		check += 0
-	}
-	s.byteReader(1, onInt)
-	if check+count != 0 {
-		t.Fatalf("Count and Check, should be 0")
-	}
-	if size := len(s.backlog); size != 1 {
-		t.Fatalf("Expected backlog buffer to be: 1, got %d", size)
-	}
-	s.buffer = buff[1:INT64_SIZE]
-	s.byteReader(7, onInt)
-	if size := len(s.backlog); check != -1 && count != 1 && size == 0 {
-		t.Fatalf("Expected Count: 1, got: %d, Expected: int -1, got: %d, expected size: 0, got: %d", count, check, size)
-	}
-
-	buff = append(buff, int64ToBytes(255)...)
-	s.buffer = buff
-	s.byteReader(16, onInt)
-	if size := len(s.backlog); check != 253 && count != 3 && size == 0 {
-		t.Fatalf("Expected Count: 3, got: %d, Expected: int 253, got: %d, expected size: 0, got: %d", count, check, size)
-	}
-	s.byteReader(15, onInt)
-	if size := len(s.backlog); check != 252 && count != 4 && size == 7 {
-		t.Fatalf("Expected Count: 4, got: %d, Expected: int 252, got: %d, expected size: 7, got: %d", count, check, size)
-	}
-	s.buffer = buff[15:16]
-	s.byteReader(1, onInt)
-	if size := len(s.backlog); check != 507 && count != 5 && size == 0 {
-		t.Fatalf("Expected Count: 5, got: %d, Expected: int 507 , got: %d, expected size: 0, got: %d", count, check, size)
-	}
-
-}
-
-func TestJobId(t *testing.T) {
-
-	a := NextJobId()
-	b := NextJobId()
-	if a == b {
-		t.Fatalf("exepected a!=b")
-	}
-	t.Logf("New job id: %d", NextJobId())
-}
-
 func TestNewWorker(t *testing.T) {
 
 	w, e := NewStandAloneWorker()
@@ -453,8 +389,7 @@ func TestTimeout(t *testing.T) {
 	var e error
 	var ok bool = false
 	job := &CallBackJob{
-		Timeout:  2,
-		RawJobId: NextJobId(),
+		Timeout: 2,
 		OnEventCallBack: func(c *CallbackEvent) {
 			if ok = c.InTimeout(); ok {
 				ts = time.Now().UnixMilli()
@@ -674,7 +609,7 @@ func TestUnlimitedWorker(t *testing.T) {
 	w, _ := NewLocalWorker(0)
 	defer w.Stop()
 	for range UNLIMITED_QUE_SIZE {
-		e := w.AddJob(&CallBackJob{RawJobId: NextJobId()})
+		e := w.AddJob(&CallBackJob{})
 		if e != nil {
 			t.Fatalf("Should be able to add as many jobs as we like!")
 		}

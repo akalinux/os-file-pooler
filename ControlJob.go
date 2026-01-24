@@ -10,8 +10,8 @@ import (
 var ERR_NO_EVENTS = errors.New("No watchEvents returned")
 var ERR_INVALID_JOBID = errors.New("Invalid JobId")
 
-// Lnix pipe buffer size is 65536, since we need a multiple of 8 we subtract 7
-var WORKER_BUFFER_SIZE = 0xffff - 7
+// Linux pipe buffer size is 65536.
+var WORKER_BUFFER_SIZE = 0xffff
 
 func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevents uint32, futureTimeOut int64, EventError error) {
 	worker := s.worker
@@ -29,51 +29,18 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 		return
 	}
 
-	size, EventError := worker.read.Read(s.buffer)
+	watchEevents = CAN_READ
+	configs, EventError := worker.getChanges()
+	defer clear(configs)
 	if EventError != nil {
 		EventError = ERR_SHUTDOWN
 		worker.write.Close()
 		worker.closed = true
 		return
 	}
-
-	watchEevents = CAN_READ
-	if !s.processBuffer(size, now) {
-		return
-	}
-
-	que := s.worker.que
-CTRL_LOOP:
-	for {
-		if worker.limit != 0 {
-			usage, limit := s.worker.LocalPoolUsage()
-			if usage >= limit {
-				break CTRL_LOOP
-			}
-		}
-		select {
-		case job := <-que:
-			if job.JobId() < 1 {
-				job.ClearPool(ERR_INVALID_JOBID)
-				continue
-			}
-			s.AddJob(job, now)
-		default:
-			// No more jobs to add
-			break CTRL_LOOP
-		}
-	}
-
-	return
-}
-
-func (s *controlJob) processBuffer(size int, now int64) (run bool) {
-	worker := s.worker
-	s.byteReader(size, func(jobid int64) {
-		if jobid == WAKEUP_THREAD {
-			run = true
-		} else if job, ok := worker.jobs[jobid]; ok {
-			events, t, fd := job.SetPool(worker, now)
+	for jobid := range configs {
+		if job, ok := worker.jobs[jobid]; ok {
+			events, t, fd := job.SetPool(worker, now, jobid)
 
 			if fd != -1 {
 				// events management
@@ -93,50 +60,34 @@ func (s *controlJob) processBuffer(size int, now int64) (run bool) {
 				worker.resetTimeout(job, t)
 			}
 		}
-	})
-	return
-}
-
-// broken out to make this very unit testable!
-func (s *controlJob) byteReader(size int, cb func(int64)) {
-	// get first chunk
-	begin := len(s.backlog)
-	end := INT64_SIZE - begin
-	if size+begin < INT64_SIZE {
-		// if we get here the buffer is too small and we just need to save the backlog and return
-		s.backlog = append(s.backlog, s.buffer[0:size]...)
-		return
-	} else if begin != 0 {
-		// fill our backlog to our end
-		s.backlog = append(s.backlog, s.buffer[0:end]...)
-		cb(bytesToInt64(s.backlog))
-		s.backlog = s.backlog[:0]
-		begin = end + 1
 	}
+	// release those configs baby!
 
+	que := s.worker.que
+CTRL_LOOP:
 	for {
-		end = begin + INT64_SIZE
-		if size >= end {
-			// got a job id of some kind!
-			cb(bytesToInt64(s.buffer[begin:end]))
-		} else if begin < size {
-			// save our backlog
-			s.backlog = s.buffer[begin:size]
-			return
-		} else {
-			// empty our backlog
-			s.backlog = s.backlog[:0]
-			return
+		if worker.limit != 0 {
+			usage, limit := s.worker.LocalPoolUsage()
+			if usage >= limit {
+				break CTRL_LOOP
+			}
 		}
-
-		begin += INT64_SIZE
+		select {
+		case job := <-que:
+			s.AddJob(job, now)
+		default:
+			// No more jobs to add
+			break CTRL_LOOP
+		}
 	}
+
+	return
 }
 
 func (s *controlJob) AddJob(job Job, now int64) {
 	worker := s.worker
 
-	events, t, fd := job.SetPool(worker, now)
+	events, t, fd := job.SetPool(worker, now, worker.nextJobId())
 	c := &wjc{
 		Job:    job,
 		nextTs: t,
@@ -179,8 +130,9 @@ func (s *controlJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents uint3
 }
 
 // Implemented only for interface compliance.
-func (s *controlJob) SetPool(worker *Worker, now int64) (watchEevents uint32, futureTimeOut int64, fd int32) {
+func (s *controlJob) SetPool(worker *Worker, now int64, jobId int64) (watchEevents uint32, futureTimeOut int64, fd int32) {
 	s.worker = worker
+	s.jobId = jobId
 	s.buffer = make([]byte, WORKER_BUFFER_SIZE)
 	watchEevents = CAN_READ
 	futureTimeOut = 0
