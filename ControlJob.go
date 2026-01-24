@@ -8,7 +8,6 @@ import (
 
 // Used to shutdown a new Job, when no events were aded
 var ERR_NO_EVENTS = errors.New("No watchEvents returned")
-var ERR_INVALID_JOBID = errors.New("Invalid JobId")
 
 // Linux pipe buffer size is 65536.
 var WORKER_BUFFER_SIZE = 0xffff

@@ -38,9 +38,6 @@ const (
 	// catch all for EOF
 	IN_EOF = uint32(unix.POLLHUP | unix.POLLRDHUP)
 
-	// Done reading and writing
-	DONE_RW = uint32(unix.EAGAIN)
-
 	// Checks if an fd can read
 	// Take a look t the unix poller constants for more info: unix.POLLER*.
 	CAN_READ = uint32(unix.POLLIN)

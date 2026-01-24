@@ -151,6 +151,7 @@ func (s *CallBackJob) ClearPool(e error) {
 	defer s.Lock.Unlock()
 	s.safeEvent(&CallbackEvent{error: e})
 	s.worker = nil
+	s.internalJobId = 0
 }
 
 func (s *CallBackJob) onRecover(config *CallbackEvent) {
