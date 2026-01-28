@@ -7,5 +7,3 @@ require (
 	github.com/aptible/supercronic v0.2.41
 	golang.org/x/sys v0.40.0
 )
-
-
