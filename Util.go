@@ -178,6 +178,7 @@ func (s *Util) SetCron(cb func(event *CallbackEvent), cron string) (*CallBackJob
 	return job, s.AddJob(job)
 }
 
+// Spawns a job that watches the given os file for read events.
 func (s *Util) WatchRead(cb func(*CallbackEvent), file *os.File, msTimeout int64) (job Job, err error) {
 	job = &CallBackJob{
 		Timeout:         msTimeout,
