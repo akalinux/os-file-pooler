@@ -3,8 +3,12 @@ package osfp
 // low level tls stuffs
 //  https://stackoverflow.com/questions/71366504/low-level-tls-handshake
 import (
+	"crypto/tls"
 	"fmt"
+	"net"
 	"os"
+	"reflect"
+	"syscall"
 	"time"
 
 	"github.com/akalinux/os-file-pooler/internal/sec"
@@ -49,9 +53,11 @@ func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*Call
 	return job, s.AddJob(job)
 }
 
+// This method creates spawns the command with stdin, and stdout set as pipes, the callback will be run when the spawned process exists.
 func (s *Util) Open2(cb func(*WaitPidEvent), name string, args ...string) (job *CmdJob, stdin *os.File, stdout *os.File, err error) {
 	return s.open(func(c *Cmd.Cmd) error { return nil }, cb, name, args...)
 }
+
 func (s *Util) open(bfeoreStart func(*Cmd.Cmd) error, cb func(*WaitPidEvent), name string, args ...string) (job *CmdJob, stdin *os.File, stdout *os.File, err error) {
 
 	cmd := Cmd.NewCmd(name, args...)
@@ -92,6 +98,7 @@ func (s *Util) open(bfeoreStart func(*Cmd.Cmd) error, cb func(*WaitPidEvent), na
 	return
 }
 
+// This method creates spawns the command with stdin, stdout, and stderr set as pipes, the callback will be run when the spawned process exists.
 func (s *Util) Open3(cb func(*WaitPidEvent), name string, args ...string) (job *CmdJob, stdin *os.File, stdout *os.File, stderr *os.File, err error) {
 
 	job, stdin, stdout, err = s.open(func(c *Cmd.Cmd) error {
@@ -143,6 +150,7 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (*WaitPidJob, error) {
 	return job, s.AddJob(job)
 }
 
+// Spawns a job that runs the given callback at the set cron interval.  This callback runs in the shared event loop.
 func (s *Util) SetCron(cb func(event *CallbackEvent), cron string) (*CallBackJob, error) {
 
 	expr, err := cronexpr.Parse(cron)
@@ -178,4 +186,46 @@ func (s *Util) WatchRead(cb func(*CallbackEvent), file *os.File, msTimeout int64
 		FdId:            int32(file.Fd()),
 	}
 	return job, s.AddJob(job)
+}
+
+// Tries to find the underlying file descriptor for a given net.Conn interface instance.
+// Works for tls/nontls/unix/tcp/udp
+func ConnToFd(src net.Conn) (fd int32, err error) {
+
+	var conn = src
+	if tlsConn, ok := conn.(*tls.Conn); ok {
+		// convert from tls to normal net.Conn
+		conn = tlsConn.NetConn()
+	}
+	if sc, ok := conn.(syscall.Conn); ok {
+		rawConn, err := sc.SyscallConn()
+
+		if err != nil {
+			return 0, err
+		}
+		err = rawConn.Control(func(sysFD uintptr) {
+			// sysFD is the *actual* file descriptor, no dup involved.
+			fd = int32(sysFD)
+		})
+		if err != nil {
+			return 0, err
+		}
+		return fd, nil
+	} else {
+		// try fallback in case the above fails
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("could not find fd via reflect")
+				}
+			}()
+		}()
+		tcpConn := reflect.Indirect(reflect.ValueOf(conn)).FieldByName("conn")
+		fdVal := tcpConn.FieldByName("fd")
+		pfdVal := reflect.Indirect(fdVal).FieldByName("pfd")
+
+		fd = int32(pfdVal.FieldByName("Sysfd").Int())
+		return
+	}
+
 }
