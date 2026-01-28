@@ -2,7 +2,7 @@
 
 This is a low level thread pooling package built around the linux epoll7 api.  The primary objective of this package 
 is to allow managing multiple data streams from a single thread or a small pool of threads.  The development process
-began as a way to manage eternal process based ffmpeg transcoding in conjunction with grpc-web video data web streams and plug them into Vosk and MellowTTS container http services.
+began as a way to manage data streams between external process based ffmpeg transcoding in conjunction with grpc-web and grew from there.  If you find it useful great, sorry this will most likely never work outside of linux, mostly because  epoll7 is non portable, and most other platforms just can't compete with it.
 
 Thread pooling of the following is currently supported:
   - Process watchers
@@ -11,3 +11,6 @@ Thread pooling of the following is currently supported:
   - Timeout callbacks
   - Read + timeout callbacks
   - Write + timeout callbacs
+
+
+This is the pre-release docs/examples pending.
