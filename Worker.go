@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	omap "github.com/akalinux/orderedmap"
@@ -53,7 +55,15 @@ const (
 	CAN_END = uint32(0)
 )
 
+var WorkerId *uint64
+
+func init() {
+	var id uint64 = 0
+	WorkerId = &id
+}
+
 type Worker struct {
+	WorkerID uint64
 	throttle chan any
 	que      chan Job
 	read     *os.File
@@ -72,6 +82,8 @@ type Worker struct {
 	pending  []map[int64]any
 	buffer   []byte
 	jobId    int64
+	wg       *sync.WaitGroup
+	running  bool
 }
 
 func NewLocalWorker(limit int) (worker *Worker, osErr error) {
@@ -95,6 +107,7 @@ func NewLocalWorker(limit int) (worker *Worker, osErr error) {
 		throttle,
 		r, w,
 		limit,
+		nil,
 	)
 	return
 }
@@ -107,7 +120,7 @@ func (s *Worker) nextJobId() int64 {
 	return s.jobId
 }
 
-func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, limit int) (*Worker, error) {
+func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, limit int, wg *sync.WaitGroup) (*Worker, error) {
 
 	// create in level not edge mode!
 	epfd, e := unix.EpollCreate1(0)
@@ -118,6 +131,7 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 	s := &Worker{
 		throttle: throttle,
 		que:      que,
+		WorkerID: atomic.AddUint64(WorkerId, 1),
 		limit:    limit,
 		closed:   false,
 		read:     read,
@@ -132,6 +146,7 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 			make(map[int64]any, UNLIMITED_QUE_SIZE),
 		},
 		buffer: make([]byte, WORKER_BUFFER_SIZE),
+		wg:     wg,
 	}
 
 	cg := newControlJob()
@@ -171,8 +186,11 @@ func (s *Worker) PoolUsageString() string {
 }
 
 func (s *Worker) pushJobConfig(id int64) error {
+
+	fmt.Printf("Pushing a config\n")
 	s.locker.Lock()
 	defer s.locker.Unlock()
+	defer fmt.Printf("Finished Pushing a config\n")
 
 	_, e := unix.Write(int(s.write.Fd()), []byte{1})
 	s.pending[s.state][id] = nil
@@ -185,9 +203,29 @@ func (s *Worker) pushJobConfig(id int64) error {
 
 // what ever method calls this should call  clear on the returned map when done processing.
 func (s *Worker) getChanges() (m map[int64]any, e error) {
+
+	fmt.Printf("Getting changes \n")
 	s.locker.RLock()
-	defer s.locker.RUnlock()
-	_, e = unix.Read(int(s.read.Fd()), s.buffer)
+	fmt.Printf("Got Changes read lock\n")
+	fmt.Printf("Buffer size is: %d\n", len(s.buffer))
+	defer func() {
+
+		s.locker.RUnlock()
+		fmt.Printf("Finished Getting changes \n")
+	}()
+
+	//n, e := unix.Read(int(s.read.Fd()), s.buffer)
+	n, e := s.read.Read(s.buffer)
+	fmt.Printf("got :%d bytes\n", n)
+	if n == 0 {
+		e = ERR_SHUTDOWN
+		return
+	}
+	if e != nil {
+		fmt.Printf("getting here\n")
+		return
+	}
+	fmt.Printf("Got past read\n")
 	state := s.state
 	// alternate between odd and even
 	s.state = (state + 1) & 1
@@ -196,17 +234,28 @@ func (s *Worker) getChanges() (m map[int64]any, e error) {
 }
 
 func (s *Worker) LocalPoolUsage() (usage, limit int) {
+	fmt.Printf("Getting pool info\n")
 	s.locker.RLock()
+
 	defer s.locker.RUnlock()
+	defer fmt.Printf("Finished Getting pool info\n")
+	return s.localPoolUsage()
+}
+
+func (s *Worker) localPoolUsage() (usage, limit int) {
 	usage = len(s.jobs) - 1
 	limit = s.limit
 	return
 }
 
 func (s *Worker) Wakeup() (err error) {
+	fmt.Printf("Wakup called\n")
 	s.locker.Lock()
 	defer s.locker.Unlock()
-	return s.wakeup()
+	defer fmt.Printf("Finished Wakup called\n")
+	err = s.wakeup()
+	return
+
 }
 
 func (s *Worker) wakeup() (err error) {
@@ -214,22 +263,41 @@ func (s *Worker) wakeup() (err error) {
 		return ERR_SHUTDOWN
 	}
 
+	fmt.Printf("Wriitng 1 byte\n")
 	_, err = unix.Write(int(s.write.Fd()), []byte{1})
 	if err != nil {
+		fmt.Printf("Someting went wrong? :%v\n", err)
 		s.write.Close()
 	}
 	return
 }
 
 func (s *Worker) Start() error {
+
 	if s.closed {
 		return ERR_SHUTDOWN
 	}
+	if s.wg != nil {
+		slog.Info(fmt.Sprintf("Starting worker: %d", s.WorkerID))
+	}
 
+	s.toggleRunning(true)
 	for !s.closed {
+
+		fmt.Printf("running again\n")
 		s.SingleRun()
 	}
+	defer s.toggleRunning(false)
+
 	return nil
+}
+
+func (s *Worker) toggleRunning(r bool) {
+	fmt.Println("Toggling running")
+	s.locker.Lock()
+	defer s.locker.Unlock()
+	defer fmt.Println("Finished Toggling running")
+	s.running = r
 }
 
 func (s *Worker) SingleRun() error {
@@ -243,11 +311,12 @@ func (s *Worker) SingleRun() error {
 	if e != nil {
 		return e
 	}
+
+	if s.closed {
+		return nil
+	}
 	s.now = time.Now()
 	s.processNextSet(active)
-	if s.closed {
-		return ERR_SHUTDOWN
-	}
 
 	return nil
 }
@@ -284,38 +353,55 @@ func (s *Worker) doPoll(sleep int64) (active int, err error) {
 	return
 }
 
+func (s *Worker) IsClosed() bool {
+	s.locker.RLock()
+	defer s.locker.RUnlock()
+	return s.closed
+}
 func (s *Worker) processNextSet(active int) {
 
 	now := s.now.UnixMilli()
-	for i := range active {
-		events := s.events[i].Events
-		fd := s.events[i].Fd
+	fmt.Printf("We have acvtive: %d, and  jobs: %d, closed: %v\n", active, len(s.fdjobs), s.closed)
 
-		job, _ := s.fdjobs[fd]
+	if active != 0 {
 
-		check := events & job.wanted
-		if check == 0 {
-			job.InEventLoop()
-			// if we get here, we need to check for errors dirrectly
-			if events&IN_EOF != 0 {
-				// best guess is EOF.. may be a few others
-				// like io.ErrClosedPipe
-				s.clearJob(job, io.EOF)
-			} else if events&IN_ERROR != 0 {
-				s.clearJob(job, io.ErrUnexpectedEOF)
+		for i := range active {
+			events := s.events[i].Events
+			fd := s.events[i].Fd
+
+			job, ok := s.fdjobs[fd]
+			if !ok {
+				// must be in shutdown mode
+				if !s.IsClosed() {
+					slog.Error("Got an invalid file descriptor")
+				}
+				return
 			}
-			// start our error check states
-			continue
+			fmt.Printf("Job id is: %d\n", job.JobId())
+			check := events & job.wanted
+			if check == 0 {
+				job.InEventLoop()
+				// if we get here, we need to check for errors dirrectly
+				if events&IN_EOF != 0 {
+					// best guess is EOF.. may be a few others
+					// like io.ErrClosedPipe
+					s.clearJob(job, io.EOF)
+				} else if events&IN_ERROR != 0 {
+					s.clearJob(job, io.ErrUnexpectedEOF)
+				}
+				// start our error check states
+				continue
 
-		}
-		w, t, e := job.ProcessEvents(check, now)
-		if e != nil || (w == 0 && t <= 0) {
-			s.clearJob(job, e)
-			continue
-		}
+			}
+			w, t, e := job.ProcessEvents(events, now)
+			if e != nil || (w == 0 && t <= 0) {
+				s.clearJob(job, e)
+				continue
+			}
 
-		s.resetTimeout(job, t)
-		s.changeEvents(job, w)
+			s.resetTimeout(job, t)
+			s.changeEvents(job, w)
+		}
 	}
 
 	for lastTimeout, jobs := range s.timeouts.RemoveBetweenKV(-1, now, omap.FIRST_KEY) {
@@ -377,20 +463,58 @@ func (s *Worker) clearJob(job *wjc, e error) {
 }
 
 func (s *Worker) Stop() error {
-	s.locker.Lock()
-	defer s.locker.Unlock()
+	fmt.Printf("trying to run close\n")
+	s.locker.RLock()
+
 	if s.closed {
-		// safe to call on a closed handle
-		s.write.Close()
+		fmt.Printf("Finished trying to run close\n")
+		s.locker.RUnlock()
 		return ERR_SHUTDOWN
 	}
-	// Safe to call lock multiple times.. or even on multiple threads.
-	// Just pass the error back if it is an issue.
-	return s.write.Close()
+	fmt.Printf("Finished trying to run close\n")
+	s.locker.RUnlock()
+	s.write.Close()
+	// if we get here.. then we need to secure the write lock
+	fmt.Printf("We need a real lock\n")
+	s.locker.Lock()
+	fmt.Printf("getting here\n")
+
+	defer s.locker.Unlock()
+	defer fmt.Printf("Giving up our close lock\n")
+
+	if s.running {
+		fmt.Printf("We are currently int he loop\n")
+	}
+	s.timeouts.RemoveAll()
+	s.closed = true
+	for _, job := range s.jobs {
+		if job.Fd() > -1 {
+			unix.EpollCtl(s.epfd, unix.EPOLL_CTL_DEL, int(job.Fd()), nil)
+		}
+		job.InEventLoop()
+		job.ClearPool(ERR_SHUTDOWN)
+	}
+	s.jobs = nil
+	s.fdjobs = nil
+	unix.EpollCtl(s.epfd, unix.EPOLL_CTL_DEL, int(s.ctrl.Fd()), nil)
+	unix.Close(s.epfd)
+	close(s.que)
+	if s.throttle != nil {
+		close(s.throttle)
+	}
+	s.write.Close()
+	if s.wg != nil {
+		slog.Info(fmt.Sprintf("Pool Control Job: Shut down worker: %d", s.WorkerID))
+		s.wg.Done()
+	}
+	return nil
 }
 
 func (s *Worker) AddJob(job Job) (err error) {
+	fmt.Printf("Adding a job\n")
 	s.locker.RLock()
+	defer fmt.Printf("Finished Adding a job\n")
+
 	defer s.locker.RUnlock()
 	if s.closed {
 		err = ERR_SHUTDOWN

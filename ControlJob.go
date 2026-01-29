@@ -2,6 +2,7 @@ package osfp
 
 import (
 	"errors"
+	"fmt"
 
 	"golang.org/x/sys/unix"
 )
@@ -12,9 +13,19 @@ var ERR_NO_EVENTS = errors.New("No watchEvents returned")
 // Linux pipe buffer size is 65536.
 var WORKER_BUFFER_SIZE = 0xffff
 
+type controlJob struct {
+	worker  *Worker
+	buffer  []byte
+	jobId   int64
+	fd      int32
+	backlog []byte
+}
+
 func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevents uint32, futureTimeOut int64, EventError error) {
 	worker := s.worker
-	if worker == nil {
+
+	fmt.Printf("Being called to process an event\n")
+	if worker == nil || worker.closed {
 		EventError = ERR_SHUTDOWN
 		return
 	}
@@ -23,15 +34,19 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 		watchEevents = 0
 		futureTimeOut = 0
 		EventError = ERR_SHUTDOWN
+		fmt.Printf("Getting to error notice?\n")
 		worker.write.Close()
 		worker.closed = true
 		return
 	}
 
 	watchEevents = CAN_READ
+	fmt.Printf("State was: %d\n", currentEvents)
 	configs, EventError := worker.getChanges()
+	fmt.Printf("Got past configs call\n")
 	defer clear(configs)
 	if EventError != nil {
+		fmt.Printf("got error of %v\n", EventError)
 		EventError = ERR_SHUTDOWN
 		worker.write.Close()
 		worker.closed = true
@@ -60,13 +75,12 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 			}
 		}
 	}
-	// release those configs baby!
 
-	que := s.worker.que
+	que := worker.que
 CTRL_LOOP:
 	for {
 		if worker.limit != 0 {
-			usage, limit := s.worker.LocalPoolUsage()
+			usage, limit := worker.localPoolUsage()
 			if usage >= limit {
 				break CTRL_LOOP
 			}
@@ -131,6 +145,7 @@ func (s *controlJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents uint3
 // Implemented only for interface compliance.
 func (s *controlJob) SetPool(worker *Worker, now int64, jobId int64) (watchEevents uint32, futureTimeOut int64, fd int32) {
 	s.worker = worker
+	fmt.Printf("We got a jobid of: %d\n", jobId)
 	s.jobId = jobId
 	s.buffer = make([]byte, WORKER_BUFFER_SIZE)
 	watchEevents = CAN_READ
@@ -142,29 +157,9 @@ func (s *controlJob) SetPool(worker *Worker, now int64, jobId int64) (watchEeven
 
 // Implemented only for interface compliance.
 func (s *controlJob) ClearPool(_ error) {
-	if s.worker != nil {
-		s.worker.timeouts.RemoveAll()
-		s.worker.closed = true
-		for _, job := range s.worker.jobs {
-			if job.Fd() > -1 {
-				unix.EpollCtl(s.worker.epfd, unix.EPOLL_CTL_DEL, int(job.Fd()), nil)
-			}
-			job.InEventLoop()
-			job.ClearPool(ERR_SHUTDOWN)
-		}
-		unix.Close(s.worker.epfd)
-		s.worker.fdjobs = nil
-	}
+	fmt.Printf("got cleared\n")
 	s.worker = nil
 	s.buffer = nil
-}
-
-type controlJob struct {
-	worker  *Worker
-	buffer  []byte
-	jobId   int64
-	fd      int32
-	backlog []byte
 }
 
 func (s *controlJob) Fd() int32 {
