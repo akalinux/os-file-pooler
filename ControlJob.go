@@ -157,6 +157,8 @@ func (s *controlJob) ClearPool(_ error) {
 		}
 		unix.Close(worker.epfd)
 		worker.fdjobs = nil
+		// we own the reader.. so we need to close it!
+		worker.read.Close()
 		if worker.wg != nil {
 			worker.wg.Done()
 		} else {

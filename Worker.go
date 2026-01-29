@@ -65,7 +65,6 @@ type Worker struct {
 	timeouts *omap.SliceTree[int64, map[int64]Job]
 	jobs     map[int64]*wjc
 	closed   bool
-	running  bool
 	locker   sync.RWMutex
 	now      time.Time
 	events   []unix.EpollEvent
@@ -100,12 +99,6 @@ func NewLocalWorker(limit int) (worker *Worker, osErr error) {
 		limit,
 	)
 	return
-}
-
-func (s *Worker) setRunning(r bool) {
-	s.locker.Lock()
-	defer s.locker.Unlock()
-	s.running = r
 }
 
 func NewStandAloneWorker() (worker *Worker, osErr error) {
@@ -233,8 +226,6 @@ func (s *Worker) wakeup() (err error) {
 }
 
 func (s *Worker) Start() error {
-	s.setRunning(true)
-	defer s.setRunning(false)
 	if s.closed {
 		return ERR_SHUTDOWN
 	}
@@ -391,7 +382,6 @@ func (s *Worker) clearJob(job *wjc, e error) {
 }
 
 func (s *Worker) Stop() error {
-	s.write.Close()
 	s.locker.Lock()
 	defer s.locker.Unlock()
 	if s.closed {
@@ -399,6 +389,7 @@ func (s *Worker) Stop() error {
 		s.write.Close()
 		return ERR_SHUTDOWN
 	}
+	s.write.Close()
 	// Safe to call lock multiple times.. or even on multiple threads.
 	// Just pass the error back if it is an issue.
 	return nil
