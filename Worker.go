@@ -30,6 +30,8 @@ const INT64_SIZE = 8
 
 const WAKEUP_THREAD = -1
 
+var nullBucket []byte = make([]byte, 0xffff)
+
 // https://man7.org/linux/man-pages/man2/poll.2.html
 const (
 	IN_ERROR = uint32(unix.POLLERR | // Errors
@@ -71,7 +73,6 @@ type Worker struct {
 	ctrl     *controlJob
 	state    byte
 	pending  []map[int64]any
-	buffer   []byte
 	jobId    int64
 	wg       *sync.WaitGroup
 }
@@ -134,7 +135,6 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 			make(map[int64]any, UNLIMITED_QUE_SIZE),
 			make(map[int64]any, UNLIMITED_QUE_SIZE),
 		},
-		buffer: make([]byte, WORKER_BUFFER_SIZE),
 	}
 
 	cg := newControlJob()
@@ -190,8 +190,7 @@ func (s *Worker) pushJobConfig(id int64) error {
 func (s *Worker) getChanges() (m map[int64]any, e error) {
 	s.locker.RLock()
 	defer s.locker.RUnlock()
-	//_, e = unix.Read(int(s.read.Fd()), s.buffer)
-	_, e = s.read.Read(s.buffer)
+	_, e = s.read.Read(nullBucket[:])
 	state := s.state
 	// alternate between odd and even
 	s.state = (state + 1) & 1
@@ -267,6 +266,12 @@ func (s *Worker) nextState() (sleep int64) {
 		now += sleep
 	}
 	return
+}
+
+func (s *Worker) close() {
+	s.locker.Lock()
+	defer s.locker.Unlock()
+	s.closed = true
 }
 
 func (s *Worker) doPoll(sleep int64) (active int, err error) {

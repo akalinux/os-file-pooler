@@ -147,7 +147,8 @@ func (s *controlJob) ClearPool(_ error) {
 		s.worker = nil
 		s.buffer = nil
 		worker.timeouts.RemoveAll()
-		worker.closed = true
+		//worker.closed = true
+		worker.close()
 		for _, job := range worker.jobs {
 			if job.Fd() > -1 {
 				unix.EpollCtl(worker.epfd, unix.EPOLL_CTL_DEL, int(job.Fd()), nil)
