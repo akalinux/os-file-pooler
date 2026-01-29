@@ -189,7 +189,6 @@ func (s *Worker) pushJobConfig(id int64) error {
 
 	s.locker.Lock()
 	defer s.locker.Unlock()
-	defer fmt.Printf("Finished Pushing a config\n")
 
 	_, e := unix.Write(int(s.write.Fd()), []byte{1})
 	s.pending[s.state][id] = nil
@@ -203,9 +202,7 @@ func (s *Worker) pushJobConfig(id int64) error {
 // what ever method calls this should call  clear on the returned map when done processing.
 func (s *Worker) getChanges() (m map[int64]any, e error) {
 
-	fmt.Printf("Getting changes \n")
 	s.locker.RLock()
-	fmt.Printf("Got Changes read lock\n")
 	fmt.Printf("Buffer size is: %d\n", len(s.buffer))
 	defer func() {
 
@@ -360,6 +357,7 @@ func (s *Worker) IsClosed() bool {
 func (s *Worker) processNextSet(active int) {
 
 	now := s.now.UnixMilli()
+	fmt.Printf("We have acvtive: %d, and  jobs: %d, closed: %v\n", active, len(s.fdjobs), s.closed)
 
 	if active != 0 {
 
@@ -371,7 +369,7 @@ func (s *Worker) processNextSet(active int) {
 			if !ok {
 				// must be in shutdown mode
 				if !s.IsClosed() {
-					slog.Error("Got an invalid file descriptor")
+					slog.Error("Got an invalid job while not not closed")
 				}
 				return
 			}
@@ -399,6 +397,10 @@ func (s *Worker) processNextSet(active int) {
 			s.resetTimeout(job, t)
 			s.changeEvents(job, w)
 		}
+	}
+
+	if s.IsClosed() {
+		return
 	}
 
 	for lastTimeout, jobs := range s.timeouts.RemoveBetweenKV(-1, now, omap.FIRST_KEY) {
@@ -466,18 +468,20 @@ func (s *Worker) Stop() error {
 		s.locker.RUnlock()
 		return ERR_SHUTDOWN
 	}
+	fmt.Printf("Finished trying to run close\n")
 	s.locker.RUnlock()
 	s.write.Close()
 	// if we get here.. then we need to secure the write lock
+	fmt.Printf("We need a real lock\n")
 	s.locker.Lock()
+	s.closed = true
 
 	defer s.locker.Unlock()
 
 	if s.running {
-		// TODO
+		//TODO
 	}
 	s.timeouts.RemoveAll()
-	s.closed = true
 	for _, job := range s.jobs {
 		if job.Fd() > -1 {
 			unix.EpollCtl(s.epfd, unix.EPOLL_CTL_DEL, int(job.Fd()), nil)
@@ -485,8 +489,6 @@ func (s *Worker) Stop() error {
 		job.InEventLoop()
 		job.ClearPool(ERR_SHUTDOWN)
 	}
-	s.jobs = nil
-	s.fdjobs = nil
 	unix.EpollCtl(s.epfd, unix.EPOLL_CTL_DEL, int(s.ctrl.Fd()), nil)
 	unix.Close(s.epfd)
 	close(s.que)
