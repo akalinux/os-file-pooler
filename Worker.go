@@ -187,7 +187,6 @@ func (s *Worker) PoolUsageString() string {
 
 func (s *Worker) pushJobConfig(id int64) error {
 
-	fmt.Printf("Pushing a config\n")
 	s.locker.Lock()
 	defer s.locker.Unlock()
 	defer fmt.Printf("Finished Pushing a config\n")
@@ -361,7 +360,6 @@ func (s *Worker) IsClosed() bool {
 func (s *Worker) processNextSet(active int) {
 
 	now := s.now.UnixMilli()
-	fmt.Printf("We have acvtive: %d, and  jobs: %d, closed: %v\n", active, len(s.fdjobs), s.closed)
 
 	if active != 0 {
 
@@ -377,7 +375,6 @@ func (s *Worker) processNextSet(active int) {
 				}
 				return
 			}
-			fmt.Printf("Job id is: %d\n", job.JobId())
 			check := events & job.wanted
 			if check == 0 {
 				job.InEventLoop()
@@ -463,27 +460,21 @@ func (s *Worker) clearJob(job *wjc, e error) {
 }
 
 func (s *Worker) Stop() error {
-	fmt.Printf("trying to run close\n")
 	s.locker.RLock()
 
 	if s.closed {
-		fmt.Printf("Finished trying to run close\n")
 		s.locker.RUnlock()
 		return ERR_SHUTDOWN
 	}
-	fmt.Printf("Finished trying to run close\n")
 	s.locker.RUnlock()
 	s.write.Close()
 	// if we get here.. then we need to secure the write lock
-	fmt.Printf("We need a real lock\n")
 	s.locker.Lock()
-	fmt.Printf("getting here\n")
 
 	defer s.locker.Unlock()
-	defer fmt.Printf("Giving up our close lock\n")
 
 	if s.running {
-		fmt.Printf("We are currently int he loop\n")
+		// TODO
 	}
 	s.timeouts.RemoveAll()
 	s.closed = true
@@ -511,9 +502,7 @@ func (s *Worker) Stop() error {
 }
 
 func (s *Worker) AddJob(job Job) (err error) {
-	fmt.Printf("Adding a job\n")
 	s.locker.RLock()
-	defer fmt.Printf("Finished Adding a job\n")
 
 	defer s.locker.RUnlock()
 	if s.closed {
