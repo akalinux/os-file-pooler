@@ -18,6 +18,7 @@ type WorkerTestSet struct {
 
 func (s *WorkerTestSet) WorkerCleanup() {
 	s.w.Close()
+	s.r.Close()
 	s.Worker.Stop()
 }
 

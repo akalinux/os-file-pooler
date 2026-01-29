@@ -62,7 +62,7 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 	}
 	// release those configs baby!
 
-	que := s.worker.que
+	que := worker.que
 CTRL_LOOP:
 	for {
 		if worker.limit != 0 {
@@ -143,20 +143,29 @@ func (s *controlJob) SetPool(worker *Worker, now int64, jobId int64) (watchEeven
 // Implemented only for interface compliance.
 func (s *controlJob) ClearPool(_ error) {
 	if s.worker != nil {
-		s.worker.timeouts.RemoveAll()
-		s.worker.closed = true
-		for _, job := range s.worker.jobs {
+		worker := s.worker
+		s.worker = nil
+		s.buffer = nil
+		worker.timeouts.RemoveAll()
+		worker.closed = true
+		for _, job := range worker.jobs {
 			if job.Fd() > -1 {
-				unix.EpollCtl(s.worker.epfd, unix.EPOLL_CTL_DEL, int(job.Fd()), nil)
+				unix.EpollCtl(worker.epfd, unix.EPOLL_CTL_DEL, int(job.Fd()), nil)
 			}
 			job.InEventLoop()
 			job.ClearPool(ERR_SHUTDOWN)
 		}
-		unix.Close(s.worker.epfd)
-		s.worker.fdjobs = nil
+		unix.Close(worker.epfd)
+		worker.fdjobs = nil
+		if worker.wg != nil {
+			worker.wg.Done()
+		} else {
+			close(worker.que)
+			if worker.throttle != nil {
+				close(worker.throttle)
+			}
+		}
 	}
-	s.worker = nil
-	s.buffer = nil
 }
 
 type controlJob struct {

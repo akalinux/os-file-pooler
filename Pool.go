@@ -19,6 +19,7 @@ type Pool struct {
 	running  bool
 	throttle chan any
 	que      chan Job
+	wg       *sync.WaitGroup
 }
 
 func (s *Pool) Stop() error {
@@ -28,16 +29,18 @@ func (s *Pool) Stop() error {
 		return ERR_SHUTDOWN
 	}
 	s.running = false
+	s.closed = true
 
 	for _, worker := range s.workers {
 		worker.Stop()
 	}
+	s.wg.Wait()
 	return nil
 }
 
 const (
 	DEFAULT_POOL_THREADS   = 10
-	DEFAULT_POOL_HANDLES   = 1000
+	DEFAULT_POOL_HANDLES   = 100000
 	DEFAULT_WORKER_HANDLES = DEFAULT_POOL_HANDLES / DEFAULT_POOL_THREADS
 )
 
@@ -54,19 +57,25 @@ func NewPool(threads int, limit int) (*Pool, error) {
 		return nil, errors.New("limit must be greater than threads")
 	}
 
-	if threads%limit != 0 {
-		return nil, errors.New("limit must be a multiple of threads")
+	var throttle chan any
+	var memberLimit int
+	if limit != 0 {
+		if threads%limit != 0 {
+			return nil, errors.New("limit must be a multiple of threads")
+		}
+		throttle = make(chan any, limit)
+		memberLimit = limit / threads
 	}
 	que := make(chan Job, threads)
-	throttle := make(chan any, limit)
-	workers := make([]*Worker, 0, threads)
+	workers := make([]*Worker, threads)
 
+	wg := new(sync.WaitGroup)
 	// we always have 1 master file handle
-	memberLimit := limit / threads
 	res := Pool{
 		workers:  workers,
 		throttle: throttle,
 		que:      que,
+		wg:       wg,
 	}
 
 	for i := range threads {
@@ -81,8 +90,8 @@ func NewPool(threads int, limit int) (*Pool, error) {
 			w.Close()
 			return nil, e
 		}
-
-		go t.Start()
+		t.wg = wg
+		wg.Add(1)
 		workers[i] = t
 	}
 
@@ -105,8 +114,19 @@ func (s *Pool) AddJob(job Job) error {
 	if s.closed || !s.running {
 		return ERR_SHUTDOWN
 	}
-	s.throttle <- struct{}{}
-	s.que <- job
+	if s.throttle != nil {
+
+		select {
+
+		case s.throttle <- struct{}{}:
+			s.que <- job
+		default:
+			return ERR_QUE_FULL
+		}
+
+	} else {
+		s.que <- job
+	}
 
 	snapshot := make([]*sortSet, len(s.workers))
 	for i, worker := range s.workers {
@@ -123,7 +143,6 @@ func (s *Pool) AddJob(job Job) error {
 func (s *Pool) Start() error {
 	s.locker.Lock()
 	defer s.locker.Unlock()
-	slog.Info("Trying to start worker pool")
 	if s.closed {
 		return ERR_SHUTDOWN
 	}
@@ -133,17 +152,14 @@ func (s *Pool) Start() error {
 	s.running = true
 
 	for i := range s.workers {
-		slog.Info(fmt.Sprintf("Starting thread %d", i))
 		go s.launchWorker(i)
 	}
 	return nil
 }
 
 func (s *Pool) launchWorker(i int) {
-	slog.Info(fmt.Sprintf("Starting worker: %d", i))
 	w := s.workers[i]
 	w.Start()
-	slog.Info(fmt.Sprintf("Stopping worker: %d", i))
 	defer s.workerPanic(w, i)
 }
 

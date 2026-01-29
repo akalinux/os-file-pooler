@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"slices"
 	"sync"
@@ -64,6 +65,7 @@ type Worker struct {
 	timeouts *omap.SliceTree[int64, map[int64]Job]
 	jobs     map[int64]*wjc
 	closed   bool
+	running  bool
 	locker   sync.RWMutex
 	now      time.Time
 	events   []unix.EpollEvent
@@ -72,6 +74,7 @@ type Worker struct {
 	pending  []map[int64]any
 	buffer   []byte
 	jobId    int64
+	wg       *sync.WaitGroup
 }
 
 func NewLocalWorker(limit int) (worker *Worker, osErr error) {
@@ -98,6 +101,13 @@ func NewLocalWorker(limit int) (worker *Worker, osErr error) {
 	)
 	return
 }
+
+func (s *Worker) setRunning(r bool) {
+	s.locker.Lock()
+	defer s.locker.Unlock()
+	s.running = r
+}
+
 func NewStandAloneWorker() (worker *Worker, osErr error) {
 	return NewLocalWorker(DEFAULT_WORKER_HANDLES)
 }
@@ -187,7 +197,8 @@ func (s *Worker) pushJobConfig(id int64) error {
 func (s *Worker) getChanges() (m map[int64]any, e error) {
 	s.locker.RLock()
 	defer s.locker.RUnlock()
-	_, e = unix.Read(int(s.read.Fd()), s.buffer)
+	//_, e = unix.Read(int(s.read.Fd()), s.buffer)
+	_, e = s.read.Read(s.buffer)
 	state := s.state
 	// alternate between odd and even
 	s.state = (state + 1) & 1
@@ -222,6 +233,8 @@ func (s *Worker) wakeup() (err error) {
 }
 
 func (s *Worker) Start() error {
+	s.setRunning(true)
+	defer s.setRunning(false)
 	if s.closed {
 		return ERR_SHUTDOWN
 	}
@@ -241,6 +254,7 @@ func (s *Worker) SingleRun() error {
 
 	active, e := s.doPoll(sleep)
 	if e != nil {
+		slog.Error(fmt.Sprintf("Failed to run poll, error was: %v", e))
 		return e
 	}
 	s.now = time.Now()
@@ -377,6 +391,7 @@ func (s *Worker) clearJob(job *wjc, e error) {
 }
 
 func (s *Worker) Stop() error {
+	s.write.Close()
 	s.locker.Lock()
 	defer s.locker.Unlock()
 	if s.closed {
@@ -386,7 +401,7 @@ func (s *Worker) Stop() error {
 	}
 	// Safe to call lock multiple times.. or even on multiple threads.
 	// Just pass the error back if it is an issue.
-	return s.write.Close()
+	return nil
 }
 
 func (s *Worker) AddJob(job Job) (err error) {

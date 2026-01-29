@@ -306,10 +306,12 @@ func TestMultipleFdTimeouts(t *testing.T) {
 	jobs := [3]*CallBackJob{}
 	jobs[0] = w.Job
 
-	ja, _, fdwa := createRJob(nil)
-	jb, _, fdwb := createRJob(nil)
+	ja, ra, fdwa := createRJob(nil)
+	jb, rb, fdwb := createRJob(nil)
 	defer fdwa.Close()
 	defer fdwb.Close()
+	defer ra.Close()
+	defer rb.Close()
 	t.Log("Adding Job 2")
 	w.Worker.AddJob(ja)
 	t.Log("Adding Job 3")
@@ -343,7 +345,7 @@ func TestMultipleFdTimeouts(t *testing.T) {
 				results[i]["end"] = time.Now().UnixMilli()
 				t.Log("In Timeout")
 			} else if e.Error() != nil {
-				t.Log("Something is going wrong")
+				t.Logf("Something is going wrong in job: %d, error was: %v", id, e.Error())
 			} else if e.IsRead() {
 				t.Log("Reading?")
 			}
@@ -366,8 +368,8 @@ func TestMultipleFdTimeouts(t *testing.T) {
 	cmp = size
 	for i, res := range results {
 		if len(res) != 3 {
-			t.Fatalf("Job: %d, did not complete", i)
-			return
+			t.Errorf("Job: %d, did not complete", i)
+			continue
 		}
 		v, _ := res["end"]
 		end, _ := v.(int64)
