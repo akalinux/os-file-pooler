@@ -35,6 +35,10 @@ func (s *Pool) Stop() error {
 		worker.Stop()
 	}
 	s.wg.Wait()
+	close(s.que)
+	if s.throttle != nil {
+		close(s.throttle)
+	}
 	return nil
 }
 
@@ -91,7 +95,6 @@ func NewPool(threads int, limit int) (*Pool, error) {
 			return nil, e
 		}
 		t.wg = wg
-		wg.Add(1)
 		workers[i] = t
 	}
 
@@ -152,7 +155,10 @@ func (s *Pool) Start() error {
 	s.running = true
 
 	for i := range s.workers {
-		go s.launchWorker(i)
+		var id int = i
+		s.wg.Go(func() {
+			s.launchWorker(id)
+		})
 	}
 	return nil
 }

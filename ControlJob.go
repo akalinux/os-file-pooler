@@ -9,9 +9,6 @@ import (
 // Used to shutdown a new Job, when no events were aded
 var ERR_NO_EVENTS = errors.New("No watchEvents returned")
 
-// Linux pipe buffer size is 65536.
-var WORKER_BUFFER_SIZE = 0xffff
-
 func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevents uint32, futureTimeOut int64, EventError error) {
 	worker := s.worker
 	if worker == nil {
@@ -60,7 +57,6 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 			}
 		}
 	}
-	// release those configs baby!
 
 	que := worker.que
 CTRL_LOOP:
@@ -132,7 +128,6 @@ func (s *controlJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents uint3
 func (s *controlJob) SetPool(worker *Worker, now int64, jobId int64) (watchEevents uint32, futureTimeOut int64, fd int32) {
 	s.worker = worker
 	s.jobId = jobId
-	s.buffer = make([]byte, WORKER_BUFFER_SIZE)
 	watchEevents = CAN_READ
 	futureTimeOut = 0
 	fd = int32(worker.read.Fd())
@@ -143,40 +138,15 @@ func (s *controlJob) SetPool(worker *Worker, now int64, jobId int64) (watchEeven
 // Implemented only for interface compliance.
 func (s *controlJob) ClearPool(_ error) {
 	if s.worker != nil {
-		worker := s.worker
+		s.worker.close()
 		s.worker = nil
-		s.buffer = nil
-		worker.timeouts.RemoveAll()
-		//worker.closed = true
-		worker.close()
-		for _, job := range worker.jobs {
-			if job.Fd() > -1 {
-				unix.EpollCtl(worker.epfd, unix.EPOLL_CTL_DEL, int(job.Fd()), nil)
-			}
-			job.InEventLoop()
-			job.ClearPool(ERR_SHUTDOWN)
-		}
-		unix.Close(worker.epfd)
-		worker.fdjobs = nil
-		// we own the reader.. so we need to close it!
-		worker.read.Close()
-		if worker.wg != nil {
-			worker.wg.Done()
-		} else {
-			close(worker.que)
-			if worker.throttle != nil {
-				close(worker.throttle)
-			}
-		}
 	}
 }
 
 type controlJob struct {
-	worker  *Worker
-	buffer  []byte
-	jobId   int64
-	fd      int32
-	backlog []byte
+	worker *Worker
+	jobId  int64
+	fd     int32
 }
 
 func (s *controlJob) Fd() int32 {
@@ -185,10 +155,8 @@ func (s *controlJob) Fd() int32 {
 
 func newControlJob() *controlJob {
 	return &controlJob{
-		buffer: make([]byte, WORKER_BUFFER_SIZE),
 		// Always set the control job to -3
-		jobId:   -3,
-		backlog: make([]byte, 0, INT64_SIZE),
+		jobId: -3,
 	}
 }
 

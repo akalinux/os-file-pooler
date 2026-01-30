@@ -268,10 +268,38 @@ func (s *Worker) nextState() (sleep int64) {
 	return
 }
 
-func (s *Worker) close() {
+func (s *Worker) _close() (state bool) {
+
 	s.locker.Lock()
 	defer s.locker.Unlock()
+	state = s.closed
 	s.closed = true
+	return
+}
+
+func (s *Worker) close() {
+	if s._close() {
+		return
+	}
+	s.timeouts.RemoveAll()
+	//worker.closed = true
+	for _, job := range s.jobs {
+		if job.Fd() > -1 {
+			unix.EpollCtl(s.epfd, unix.EPOLL_CTL_DEL, int(job.Fd()), nil)
+		}
+		job.InEventLoop()
+		job.ClearPool(ERR_SHUTDOWN)
+	}
+	unix.Close(s.epfd)
+	s.fdjobs = nil
+	// we own the reader.. so we need to close it!
+	s.read.Close()
+	if s.wg == nil {
+		close(s.que)
+		if s.throttle != nil {
+			close(s.throttle)
+		}
+	}
 }
 
 func (s *Worker) doPoll(sleep int64) (active int, err error) {
@@ -316,7 +344,6 @@ func (s *Worker) processNextSet(active int) {
 			}
 			// start our error check states
 			continue
-
 		}
 		w, t, e := job.ProcessEvents(check, now)
 		if e != nil || (w == 0 && t <= 0) {
