@@ -67,11 +67,6 @@ func (s *Resolver) Request(name string, Cb func(*dns.Msg, error)) (pending *Acti
 	return
 }
 
-type ConType struct {
-	Type int
-	Addr syscall.Sockaddr
-}
-
 func ParseServers(servers []string, Port int) (res []ConType, e error) {
 	res = make([]ConType, 0, len(servers))
 

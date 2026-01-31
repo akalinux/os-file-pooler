@@ -11,10 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/akalinux/os-file-pooler/internal/sec"
 	Cmd "github.com/akalinux/os-file-pooler/pkg/Cmd"
 	"github.com/aptible/supercronic/cronexpr"
-	"golang.org/x/sys/unix"
 )
 
 type Util struct {
@@ -107,47 +105,6 @@ func (s *Util) Open3(cb func(*WaitPidEvent), name string, args ...string) (job *
 	}, cb, name, args...)
 
 	return
-}
-
-// Watches a given pid and runs cb on exit.  The process exit code can be found in *WaitPidEvent.ExitCode.
-func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (*WaitPidJob, error) {
-	pfd, err := unix.PidfdOpen(pid, unix.PIDFD_NONBLOCK)
-
-	if err != nil {
-		// no such pid
-		return nil, fmt.Errorf("Failed to Create fd for pid: %d, erro was %w", pid, err)
-	}
-
-	var job *WaitPidJob
-	job = &WaitPidJob{
-		pid: pid,
-		fd:  &pfd,
-		CallBackJob: &CallBackJob{
-			FdId:   int32(pfd),
-			Events: CAN_READ,
-			OnEventCallBack: func(event *CallbackEvent) {
-
-				if pfd == -1 {
-					// we have been closed!
-					return
-				}
-				pe := &WaitPidEvent{
-					CallbackEvent: event,
-					Usage:         &unix.Rusage{},
-					Info:          &unix.Siginfo{},
-				}
-				defer job.closeFd()
-				defer cb(pe)
-				if event.InError() {
-					return
-				}
-				event.error = unix.Waitid(unix.P_PIDFD, pfd, pe.Info, unix.WNOHANG|unix.WEXITED, pe.Usage)
-				pe.ExitCode = sec.GetExitCodeFromSigInfo(pe.Info)
-
-			},
-		},
-	}
-	return job, s.AddJob(job)
 }
 
 // Spawns a job that runs the given callback at the set cron interval.  This callback runs in the shared event loop.

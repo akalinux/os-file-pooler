@@ -1,0 +1,17 @@
+# Coment, should not parse!
+#127.0.0.1	localhost,localhost.localdomain
+127.0.0.1	localhost
+::1	localhost ip6-localhost ip6-loopback
+fe00::	ip6-localnet
+ff00::	ip6-mcastprefix
+ff02::1	ip6-allnodes
+ff02::2	ip6-allrouters
+172.17.0.2	c8d645833a8c
+192.18.1.1  tesst# some comment
+0.1 # bad line
+127.0.0.1 No.Where.Com# should not parse here
+127.0.0.2 No.Where.Com# should not parse here
+127.0.0.3 No.Where.Com# should not parse here
+::1 No.Where.Com# should not parse here
+::2 No.Where.Com# should not parse here
+::3 No.Where.Com# should not parse here

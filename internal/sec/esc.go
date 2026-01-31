@@ -1,3 +1,5 @@
+//go:build linux
+
 // Get Shell Exit code
 package sec
 
