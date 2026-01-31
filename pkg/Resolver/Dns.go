@@ -67,7 +67,8 @@ func Id() uint16 {
 	return seq
 }
 
-func Pack(fqdn string, id uint16) (packed []byte, e error) {
+func PackFqdnToIp(fqdn string, id uint16) (packed []byte, e error) {
+
 	size := len(fqdn) + 16
 	if size == 18 {
 		e = fmt.Errorf("String is 0 bytes long")
@@ -79,6 +80,8 @@ func Pack(fqdn string, id uint16) (packed []byte, e error) {
 		e = fmt.Errorf("Invalid fqdn: [%s] must have at least 1 \".\", got: 0", fqdn)
 		return
 	}
+	cs := len(chunks) >> 1
+	size += cs + cs&1
 	packed = make([]byte, size)
 	copy(packed, baseRequest[:])
 	offset := 12
