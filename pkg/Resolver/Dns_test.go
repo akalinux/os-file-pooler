@@ -9,8 +9,12 @@ import (
 func TestPack(t *testing.T) {
 	for _, test := range []string{"google.com", "x.x.x.x", "a.b.c"} {
 
-		dns := &Dns{}
+		t.Logf("Working with fqdn: %s", test)
+		dns := &Dns{
+			Request: &DnsRequest{},
+		}
 		bytes, _, e := dns.PackFqdnToIp(test)
+
 		if e != nil {
 			t.Fatalf("Should not have gotten an error, got %v", e)
 			return
@@ -31,8 +35,8 @@ func TestPack(t *testing.T) {
 }
 
 func TestDnsLookup(t *testing.T) {
-	//ip := net.ParseIP("192.168.65.7")
-	ip := net.ParseIP("192.168.1.129")
+	ip := net.ParseIP("192.168.65.7")
+	//ip := net.ParseIP("192.168.1.129")
 	//ip := net.ParseIP("8.8.8.8")
 
 	dns, e := NewDnsClient(ip, 53, 4)
@@ -78,6 +82,7 @@ func TestParseName(t *testing.T) {
 	src = append(src, 3)
 	src = append(src, []byte("joe")...)
 	src = append(src, 0xc0, 0)
+	t.Logf("Starting Compressed tests")
 	res, pos, err := ParseName(src, start)
 	if err != nil {
 		t.Fatalf("No errors expected, got: %v", err)
@@ -89,4 +94,27 @@ func TestParseName(t *testing.T) {
 	if pos != len(src) {
 		t.Fatalf("Expected: %d, got: %d", len(src), pos)
 	}
+
+	t.Logf("Starting Uncompressed tests")
+	src = []byte{}
+	src = append(src, 1)
+	src = append(src, []byte("j")...)
+	src = append(src, 2)
+	src = append(src, []byte("ex")...)
+	src = append(src, 3)
+	src = append(src, []byte("com")...)
+	src = append(src, 0)
+	res, pos, err = ParseName(src, 0)
+	if err != nil {
+		t.Fatalf("Something went wrong, got error: %v", err)
+		return
+	}
+	if pos != len(src) {
+		t.Fatalf("Expected pos of: %d, got %d", len(src), pos)
+		return
+	}
+	if res != "j.ex.com" {
+		t.Fatalf("Expected: [j.ex.com], got: %s", res)
+	}
+
 }

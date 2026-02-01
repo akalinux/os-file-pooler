@@ -101,6 +101,10 @@ func Id() uint16 {
 
 func (s *Dns) PackFqdnToIp(fqdn string) (packed []byte, size int, e error) {
 
+	if s.Request == nil {
+		e = ERR_NO_DATA
+		return
+	}
 	size = len(fqdn) + BASE_DNS_PACKET_SIZE
 	if size == 18 {
 		e = fmt.Errorf("String is 0 bytes long")

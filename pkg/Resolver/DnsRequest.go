@@ -73,7 +73,7 @@ func ParseName(buffer []byte, offsetStart int) (res string, pos int, e error) {
 
 	jump := 0
 	for p <= limit {
-		if size&IS_COMPRESSED != 0 {
+		if size&IS_COMPRESSED == IS_COMPRESSED {
 			b := p
 			p = int(binary.BigEndian.Uint16(buffer[p:]) & COMPRESSED_MASK)
 			if jump == 0 {
@@ -103,7 +103,7 @@ func ParseName(buffer []byte, offsetStart int) (res string, pos int, e error) {
 		size = buffer[p]
 		if size == 0 {
 			if jump == 0 {
-				pos++
+				pos = p + 1
 			}
 			break
 		}
