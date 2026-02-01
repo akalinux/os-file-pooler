@@ -22,6 +22,7 @@ var ERR_IN_FRAME_DECOMPRESSION = fmt.Errorf("Max packet depth exceeded")
 
 const IS_COMPRESSED = 0xc0
 const COMPRESSED_MASK = 0x3fff
+const MAX_JUMPS = 50
 
 type ConType struct {
 	Type int
@@ -29,6 +30,7 @@ type ConType struct {
 }
 
 /*
+// TODO https://datatracker.ietf.org/doc/html/rfc6891
 // DNS Header
 +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 |0 |1 |2 |3 |4 |5 |6 |7 |0 |1 |2 |3 |4 |5 |6 |7 |
@@ -300,25 +302,45 @@ func ParseName(buffer []byte, offsetStart int) (res string, pos int, e error) {
 	chunks := make([]string, 0, 3)
 
 	size = uint8(buffer[pos])
+	p := pos
 
-	for pos <= limit {
+	jump := 0
+	for p <= limit {
 		if size&IS_COMPRESSED != 0 {
-			fmt.Printf("**** Yup **** \n")
+			b := p
+			p = int(binary.BigEndian.Uint16(buffer[p:]) & COMPRESSED_MASK)
+			if jump == 0 {
+				pos = b + 2
+			}
+			size = buffer[p]
+			jump++
+			if jump > MAX_JUMPS {
+				e = ERR_IN_FRAME_DECOMPRESSION
+				return
+			}
+			continue
+		} else {
+			p++
+			if jump == 0 {
+				pos = p
+			}
 		}
-		pos++
-		end := int(size) + pos
+
+		end := int(size) + p
 		if end > limit {
 			e = ERR_PACKET_OUT_OF_BOUNDS
 			return
 		}
-		chunks = append(chunks, string(buffer[pos:end]))
-		pos = end
-		size = buffer[pos]
+		chunks = append(chunks, string(buffer[p:end]))
+		p = end
+		size = buffer[p]
 		if size == 0 {
+			if jump == 0 {
+				pos++
+			}
 			break
 		}
 	}
-	pos++
 	res = strings.Join(chunks, ".")
 	return
 }

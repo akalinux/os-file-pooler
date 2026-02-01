@@ -68,3 +68,25 @@ func TestDnsLookup(t *testing.T) {
 	}
 
 }
+
+func TestParseName(t *testing.T) {
+	src := []byte{3}
+	src = append(src, []byte("com")...)
+	src = append(src, 0)
+	// start after this point
+	start := len(src)
+	src = append(src, 3)
+	src = append(src, []byte("joe")...)
+	src = append(src, 0xc0, 0)
+	res, pos, err := ParseName(src, start)
+	if err != nil {
+		t.Fatalf("No errors expected, got: %v", err)
+		return
+	}
+	if res != "joe.com" {
+		t.Fatalf("Expected: joe.com, got: %s", res)
+	}
+	if pos != len(src) {
+		t.Fatalf("Expected: %d, got: %d", len(src), pos)
+	}
+}
