@@ -9,7 +9,8 @@ import (
 func TestPack(t *testing.T) {
 	for _, test := range []string{"google.com", "x.x.x.x", "a.b.c"} {
 
-		bytes, _, e := PackFqdnToIp(test, 2, 1)
+		dns := &Dns{}
+		bytes, _, e := dns.PackFqdnToIp(test)
 		if e != nil {
 			t.Fatalf("Should not have gotten an error, got %v", e)
 			return

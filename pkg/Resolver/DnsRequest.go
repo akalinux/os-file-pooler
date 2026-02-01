@@ -10,6 +10,8 @@ type DnsRequest struct {
 	RequestOffset int
 	Response      []byte
 	Request       []byte
+	Type          uint16
+	Class         uint16
 }
 
 func (s *DnsRequest) Parse() (fields *ParsedFeilds, e error) {

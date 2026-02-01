@@ -133,7 +133,7 @@ func (s *Dns) PackFqdnToIp(fqdn string) (packed []byte, size int, e error) {
 	packed[offset] = 0
 	offset += 1
 
-	binary.BigEndian.PutUint16(packed[offset:], s.Type)
+	binary.BigEndian.PutUint16(packed[offset:], s.Request.Type)
 	offset += 2
 	binary.BigEndian.PutUint16(packed[offset:], 0x0001)
 
@@ -147,7 +147,6 @@ type Dns struct {
 	IpPref  *byte
 	EDNS0   bool
 	Request *DnsRequest
-	Type    uint16
 }
 
 func NewDnsClient(ip net.IP, port int, IpPref byte) (client *Dns, e error) {
@@ -193,24 +192,25 @@ func (s *Dns) Close() {
 
 func (s *Dns) Send(name string) (e error) {
 	id := s.Id
-	s.Id++
 	pref := *s.IpPref
-	s.Type = QTYPE_AAAA
-	if pref != 0 && pref != 6 {
-		s.Type = QTYPE_AA
-	}
+
 	var offset int
 	var payload []byte
+	s.Request = &DnsRequest{
+		Id: id,
+	}
+	s.Request.Type = QTYPE_AAAA
+	if pref != 0 && pref != 6 {
+		s.Request.Type = QTYPE_AA
+	}
 	payload, offset, e = s.PackFqdnToIp(name)
 	if e != nil {
 		return
 	}
+	s.Request.Request = payload
+	s.Request.RequestOffset = offset
+	s.Id++
 	e = syscall.Sendto(s.Fd, payload, 0, s.Dst)
-	s.Request = &DnsRequest{
-		Id:            id,
-		RequestOffset: offset,
-		Request:       payload,
-	}
 
 	return
 }
