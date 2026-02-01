@@ -15,48 +15,6 @@ var clearComment = regexp.MustCompile("#.*$")
 // default ip pref
 const IP_PREF byte = 6
 
-type ParsedFeilds struct {
-	Ipv4 []net.IP
-	Pos4 int
-	Ipv6 []net.IP
-	Pos6 int
-	Ttl  uint32
-}
-
-func (s *ParsedFeilds) Resolve(IpPref byte, cb func(net.IP, error)) {
-	var pref int = int(IpPref)
-	if pref == 0 {
-		pref = int(IP_PREF)
-	}
-	for ; pref > 2; pref -= 2 {
-		switch pref {
-		case 4:
-			size := len(s.Ipv4)
-			if size != 0 {
-				cb(s.Ipv4[s.Pos4%size], nil)
-				s.Pos4++
-				if s.Pos4 < 0 {
-					s.Pos4 = 0
-				}
-				return
-			}
-		case 6:
-			size := len(s.Ipv4)
-			if size != 0 {
-				cb(s.Ipv6[s.Pos6%size], nil)
-				s.Pos6++
-				if s.Pos6 < 0 {
-					s.Pos6 = 0
-				}
-				return
-			}
-
-		}
-
-	}
-	cb(nil, nil)
-}
-
 type ParsedHostsFile struct {
 	LastMod  time.Time
 	Resolved map[string]*ParsedFeilds

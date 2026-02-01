@@ -9,7 +9,7 @@ import (
 func TestPack(t *testing.T) {
 	for _, test := range []string{"google.com", "x.x.x.x", "a.b.c"} {
 
-		bytes, e := PackFqdnToIp(test, 2, 1)
+		bytes, _, e := PackFqdnToIp(test, 2, 1)
 		if e != nil {
 			t.Fatalf("Should not have gotten an error, got %v", e)
 			return
@@ -42,25 +42,24 @@ func TestDnsLookup(t *testing.T) {
 	}
 	defer dns.Close()
 
-	var payload []byte
-	var sent []byte
 	//_, sent, e = dns.Send("ka1.homenet.ld")
-	_, sent, e = dns.Send("google.com")
+	e = dns.Send("google.com")
 
 	if e = dns.SetTimeout(2); e != nil {
 		t.Fatalf("Failed to force our timeout!")
 		return
 	}
 
-	payload, e = dns.Recv()
+	e = dns.Recv()
 	if e != nil {
 		t.Fatalf("Network issue: %e", e)
 		return
 	}
-	t.Logf("Sent: \n%s", hex.Dump(sent))
-	_, e = Parse(payload, sent)
+	t.Logf("Sent: \n%s", hex.Dump(dns.Request.Request))
+
+	_, e = dns.Request.Parse()
 	//str := hex.Dump(payload[len(sent):])
-	str := hex.Dump(payload[len(sent):])
+	str := hex.Dump(dns.Request.Response)
 	t.Logf("Got: \n%s", str)
 	if e != nil {
 		t.Fatalf("Expected no error and got: %v", e)
