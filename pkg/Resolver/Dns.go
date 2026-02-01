@@ -99,7 +99,7 @@ func Id() uint16 {
 	return seq
 }
 
-func PackFqdnToIp(fqdn string, id uint16, Type uint16) (packed []byte, size int, e error) {
+func (s *Dns) PackFqdnToIp(fqdn string) (packed []byte, size int, e error) {
 
 	size = len(fqdn) + BASE_DNS_PACKET_SIZE
 	if size == 18 {
@@ -117,7 +117,7 @@ func PackFqdnToIp(fqdn string, id uint16, Type uint16) (packed []byte, size int,
 	size += cs + cs&1
 	packed = make([]byte, size)
 	copy(packed, baseRequest)
-	binary.BigEndian.PutUint16(packed[0:2], id)
+	binary.BigEndian.PutUint16(packed[0:2], s.Id)
 	offset := 12
 	for _, chunk := range chunks {
 		cs := len(chunk)
@@ -133,7 +133,7 @@ func PackFqdnToIp(fqdn string, id uint16, Type uint16) (packed []byte, size int,
 	packed[offset] = 0
 	offset += 1
 
-	binary.BigEndian.PutUint16(packed[offset:], Type)
+	binary.BigEndian.PutUint16(packed[offset:], s.Type)
 	offset += 2
 	binary.BigEndian.PutUint16(packed[offset:], 0x0001)
 
@@ -147,6 +147,7 @@ type Dns struct {
 	IpPref  *byte
 	EDNS0   bool
 	Request *DnsRequest
+	Type    uint16
 }
 
 func NewDnsClient(ip net.IP, port int, IpPref byte) (client *Dns, e error) {
@@ -194,13 +195,13 @@ func (s *Dns) Send(name string) (e error) {
 	id := s.Id
 	s.Id++
 	pref := *s.IpPref
-	Type := QTYPE_AAAA
+	s.Type = QTYPE_AAAA
 	if pref != 0 && pref != 6 {
-		Type = QTYPE_AA
+		s.Type = QTYPE_AA
 	}
 	var offset int
 	var payload []byte
-	payload, offset, e = PackFqdnToIp(name, id, Type)
+	payload, offset, e = s.PackFqdnToIp(name)
 	if e != nil {
 		return
 	}
