@@ -99,51 +99,6 @@ func Id() uint16 {
 	return seq
 }
 
-func (s *Dns) PackFqdnToIp(fqdn string) (packed []byte, size int, e error) {
-
-	if s.Request == nil {
-		e = ERR_NO_DATA
-		return
-	}
-	size = len(fqdn) + BASE_DNS_PACKET_SIZE
-	if size == 18 {
-		e = fmt.Errorf("String is 0 bytes long")
-		return
-	}
-	chunks := strings.Split(fqdn, ".")
-	end := len(chunks) - 1
-	if end == 0 {
-		e = fmt.Errorf("Invalid fqdn: [%s] must have at least 1 \".\", got: 0", fqdn)
-		return
-	}
-
-	cs := len(chunks) >> 1
-	size += cs + cs&1
-	packed = make([]byte, size)
-	copy(packed, baseRequest)
-	binary.BigEndian.PutUint16(packed[0:2], s.Id)
-	offset := 12
-	for _, chunk := range chunks {
-		cs := len(chunk)
-		if cs > 63 || cs < 1 {
-			e = fmt.Errorf("Invalid in reuqest: [%s], section: [%s] must be between 1 and 63 bytes long", fqdn, chunk)
-			return
-		}
-		packed[offset] = byte(cs)
-		offset += 1
-		copy(packed[offset:], []byte(chunk))
-		offset += cs
-	}
-	packed[offset] = 0
-	offset += 1
-
-	binary.BigEndian.PutUint16(packed[offset:], s.Request.Type)
-	offset += 2
-	binary.BigEndian.PutUint16(packed[offset:], 0x0001)
-
-	return
-}
-
 type Dns struct {
 	Dst     syscall.Sockaddr
 	Fd      int
@@ -243,5 +198,50 @@ func (s *Dns) Recv() (e error) {
 		return
 	}
 	s.Request.Response = payload[0:n]
+	return
+}
+
+func (s *Dns) PackFqdnToIp(fqdn string) (packed []byte, size int, e error) {
+
+	if s.Request == nil {
+		e = ERR_NO_DATA
+		return
+	}
+	size = len(fqdn) + BASE_DNS_PACKET_SIZE
+	if size == 18 {
+		e = fmt.Errorf("String is 0 bytes long")
+		return
+	}
+	chunks := strings.Split(fqdn, ".")
+	end := len(chunks) - 1
+	if end == 0 {
+		e = fmt.Errorf("Invalid fqdn: [%s] must have at least 1 \".\", got: 0", fqdn)
+		return
+	}
+
+	cs := len(chunks) >> 1
+	size += cs + cs&1
+	packed = make([]byte, size)
+	copy(packed, baseRequest)
+	binary.BigEndian.PutUint16(packed[0:2], s.Id)
+	offset := 12
+	for _, chunk := range chunks {
+		cs := len(chunk)
+		if cs > 63 || cs < 1 {
+			e = fmt.Errorf("Invalid in reuqest: [%s], section: [%s] must be between 1 and 63 bytes long", fqdn, chunk)
+			return
+		}
+		packed[offset] = byte(cs)
+		offset += 1
+		copy(packed[offset:], []byte(chunk))
+		offset += cs
+	}
+	packed[offset] = 0
+	offset += 1
+
+	binary.BigEndian.PutUint16(packed[offset:], s.Request.Type)
+	offset += 2
+	binary.BigEndian.PutUint16(packed[offset:], 0x0001)
+
 	return
 }
