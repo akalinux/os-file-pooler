@@ -20,6 +20,7 @@ type ParsedFeilds struct {
 	Pos4 int
 	Ipv6 []net.IP
 	Pos6 int
+	Ttl  uint32
 }
 
 func (s *ParsedFeilds) Resolve(IpPref byte, cb func(net.IP, error)) {
