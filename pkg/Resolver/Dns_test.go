@@ -154,4 +154,10 @@ func TestParseName(t *testing.T) {
 		t.Fatalf("Failed to parse section correctly, should get an error")
 	}
 
+	src = []byte{0xc0, 0}
+	t.Logf("Starting Infinite loop test")
+	res, pos, err = ParseName(src, 0)
+	if err == nil {
+		t.Fatalf("Should have errored out!")
+	}
 }
