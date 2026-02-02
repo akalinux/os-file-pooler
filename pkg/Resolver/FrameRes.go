@@ -1,6 +1,8 @@
 package resolver
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+)
 
 type FrameRes struct {
 	Name  string
@@ -9,6 +11,7 @@ type FrameRes struct {
 	RdLen uint16
 	Rdata []byte
 	Ttl   uint32
+	Id    uint16
 }
 
 func ParseFrame(buffer []byte, offsetStart int) (frame *FrameRes, pos int, e error) {
@@ -43,7 +46,7 @@ func ParseFrame(buffer []byte, offsetStart int) (frame *FrameRes, pos int, e err
 		pos = p
 	}
 
-	if limit <= pos+10 {
+	if limit < pos+10 {
 		e = ERR_PACKET_OUT_OF_BOUNDS
 		return
 	}
@@ -61,7 +64,8 @@ func ParseFrame(buffer []byte, offsetStart int) (frame *FrameRes, pos int, e err
 		return
 	}
 	frame.Rdata = buffer[pos:final]
-	pos += int(frame.RdLen) + 1
+
+	pos = final
 
 	return
 }

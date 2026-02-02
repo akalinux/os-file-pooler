@@ -1,6 +1,9 @@
 package resolver
 
-import "net"
+import (
+	"net"
+	"strings"
+)
 
 type ParsedFeilds struct {
 	Ipv4 []net.IP
@@ -11,17 +14,17 @@ type ParsedFeilds struct {
 	Name string
 }
 
-func (s *ParsedFeilds) ConsumeFrame(frame *FrameRes) (updated bool, ttl uint32) {
-	if frame.Class == 1 && (frame.Type == QTYPE_AA || frame.Type == QTYPE_AAAA) {
-		s.Name = frame.Name
+func (s *ParsedFeilds) ConsumeFrame(frame *FrameRes) {
+	if frame.Class == 1 && (frame.Type == QTYPE_AA || frame.Type == QTYPE_AAAA) && strings.ToLower(frame.Name) == s.Name {
 
-		if s.Ttl != 0 {
-			ttl = s.Ttl
-			s.Ipv4 = nil
-			s.Ipv6 = nil
-			updated = true
-		}
 		ip := net.IP(frame.Rdata)
+		if ip == nil {
+			return
+		}
+		if s.Ttl == 0 || s.Ttl > frame.Ttl {
+			s.Ttl = frame.Ttl
+		}
+		s.Name = frame.Name
 		if ip.To4() != nil {
 			s.Ipv4 = append(s.Ipv4, ip)
 		} else {
@@ -29,7 +32,6 @@ func (s *ParsedFeilds) ConsumeFrame(frame *FrameRes) (updated bool, ttl uint32) 
 		}
 		s.Ttl = frame.Ttl
 	}
-	return
 }
 
 func (s *ParsedFeilds) Resolve(IpPref byte, cb func(net.IP, error)) {

@@ -12,6 +12,7 @@ type DnsRequest struct {
 	Request       []byte
 	Type          uint16
 	Class         uint16
+	Lookup        string
 }
 
 func (s *DnsRequest) Parse() (fields *ParsedFeilds, e error) {
@@ -31,27 +32,36 @@ func (s *DnsRequest) Parse() (fields *ParsedFeilds, e error) {
 		e = ERR_ID_MISSMATCH
 		return
 	}
-	count := binary.BigEndian.Uint16(buffer[4:6])
-	if count == 0 {
+	answers := binary.BigEndian.Uint16(buffer[6:8])
+	var ta uint16 = 0
+	size := len(buffer)
+	offset := s.RequestOffset
+	//nscount := binary.BigEndian.Uint16(buffer[8:10])
+	//arcount := binary.BigEndian.Uint16(buffer[10:12])
+	if answers == 0 {
 		e = ERR_NO_DATA
 		return
 	}
-	size := len(buffer)
-	offset := s.RequestOffset
 
 	frame, pos, err := ParseFrame(buffer, offset)
 	if err != nil {
 		e = err
 		return
 	}
-	fields = &ParsedFeilds{}
+	ta++
+	fields = &ParsedFeilds{
+		Name: s.Lookup,
+	}
 	fields.ConsumeFrame(frame)
 	for pos < size && err == nil {
 		frame, pos, err = ParseFrame(buffer, pos)
+
 		if err != nil {
 			break
 		}
 		fields.ConsumeFrame(frame)
+
+		ta++
 	}
 
 	return
@@ -59,6 +69,10 @@ func (s *DnsRequest) Parse() (fields *ParsedFeilds, e error) {
 
 func ParseName(buffer []byte, offsetStart int) (res string, pos int, e error) {
 	limit := len(buffer)
+	if limit == 0 {
+		e = ERR_NO_DATA
+		return
+	}
 
 	if offsetStart > limit {
 		e = ERR_PACKET_OUT_OF_BOUNDS
@@ -69,6 +83,10 @@ func ParseName(buffer []byte, offsetStart int) (res string, pos int, e error) {
 	chunks := make([]string, 0, 3)
 
 	size = uint8(buffer[pos])
+	if size == 0 {
+		pos++
+		return
+	}
 	p := pos
 
 	jump := 0

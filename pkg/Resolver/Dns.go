@@ -13,12 +13,17 @@ const PACKT_READ_SIZE = 0xffff
 const BASE_DNS_PACKET_SIZE = 16
 const QTYPE_AA uint16 = 1
 const QTYPE_AAAA uint16 = 0x001c
+const CLASS_A uint16 = 1
+const CLASS_ANY uint16 = 0x00ff
+const EDNSO_SIZE = 1232
+const ENABLE_EDNSO = true
 
 var ERR_NO_DATA = fmt.Errorf("No data in response")
 var ERR_PACKET_OUT_OF_BOUNDS = fmt.Errorf("Error, oversized packet read")
 var ERR_LOOKUP_ERROR = fmt.Errorf("Dns lookup error")
 var ERR_ID_MISSMATCH = fmt.Errorf("Response Id does not match the request id")
 var ERR_IN_FRAME_DECOMPRESSION = fmt.Errorf("Max packet depth exceeded")
+var ERR_NO_IP_TYPE = fmt.Errorf("IpPref must either be 4 for ipv4 or 6 for ipv6")
 
 const IS_COMPRESSED = 0xc0
 const COMPRESSED_MASK = 0x3fff
@@ -83,14 +88,24 @@ type ConType struct {
 func init() {
 	baseRequest = make([]byte, 12)
 	// set RD field to true!
+	// TURN THIS BACK ON WHEN DONE TESTING!
 	binary.BigEndian.PutUint16(baseRequest[2:], 0x0100)
 	// always set request count to 1!
 	binary.BigEndian.PutUint16(baseRequest[4:], 0x0001)
+	ednsoPayload = []byte{
+		0,
+		0, 0x29,
+		0x04, 0xd0, // Size 1232
+		0, 0, 0, 0, // TTL
+		0, 0,
+	}
+
 }
 
 var seq uint16
 var idLock sync.Mutex
 var baseRequest []byte
+var ednsoPayload []byte
 
 func Id() uint16 {
 	idLock.Lock()
@@ -106,6 +121,8 @@ type Dns struct {
 	IpPref  *byte
 	EDNS0   bool
 	Request *DnsRequest
+	Class   uint16
+	Type    uint16
 }
 
 func NewDnsClient(ip net.IP, port int, IpPref byte) (client *Dns, e error) {
@@ -116,6 +133,17 @@ func NewDnsClient(ip net.IP, port int, IpPref byte) (client *Dns, e error) {
 	var dst syscall.Sockaddr
 	var Type int
 	var fd int
+	if IpPref != 4 && IpPref != 6 {
+		e = ERR_NO_IP_TYPE
+		return
+	}
+	var RType uint16
+	if IpPref == 4 {
+		RType = QTYPE_AA
+	} else {
+		RType = QTYPE_AAAA
+	}
+
 	if res := ip.To16(); res != nil {
 		dst = &syscall.SockaddrInet6{
 			Port: port,
@@ -128,8 +156,6 @@ func NewDnsClient(ip net.IP, port int, IpPref byte) (client *Dns, e error) {
 			Addr: [4]byte(res),
 		}
 		Type = syscall.AF_INET
-	} else {
-		e = fmt.Errorf("failed ip to address")
 	}
 	fd, e = syscall.Socket(Type, syscall.SOCK_DGRAM, 0)
 	if e != nil {
@@ -140,6 +166,9 @@ func NewDnsClient(ip net.IP, port int, IpPref byte) (client *Dns, e error) {
 		Dst:    dst,
 		Fd:     fd,
 		IpPref: &IpPref,
+		EDNS0:  ENABLE_EDNSO,
+		Class:  CLASS_A,
+		Type:   RType,
 	}
 
 	return
@@ -156,9 +185,11 @@ func (s *Dns) Send(name string) (e error) {
 	var offset int
 	var payload []byte
 	s.Request = &DnsRequest{
-		Id: id,
+		Id:     id,
+		Class:  s.Class,
+		Type:   s.Type,
+		Lookup: strings.ToLower(name),
 	}
-	s.Request.Type = QTYPE_AAAA
 	if pref != 0 && pref != 6 {
 		s.Request.Type = QTYPE_AA
 	}
@@ -241,7 +272,19 @@ func (s *Dns) PackFqdnToIp(fqdn string) (packed []byte, size int, e error) {
 
 	binary.BigEndian.PutUint16(packed[offset:], s.Request.Type)
 	offset += 2
-	binary.BigEndian.PutUint16(packed[offset:], 0x0001)
-
+	binary.BigEndian.PutUint16(packed[offset:], s.Request.Class)
+	packed = s.Ednso(packed)
 	return
+}
+
+func (s *Dns) Ednso(buffer []byte) []byte {
+	if !s.EDNS0 {
+
+		return buffer
+	}
+	// set the extended field size
+	binary.BigEndian.PutUint16(buffer[10:], 0x0001)
+	buffer = append(buffer, ednsoPayload...)
+	return buffer
+
 }

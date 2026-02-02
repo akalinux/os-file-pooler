@@ -35,11 +35,13 @@ func TestPack(t *testing.T) {
 }
 
 func TestDnsLookup(t *testing.T) {
-	ip := net.ParseIP("192.168.65.7")
-	//ip := net.ParseIP("192.168.1.129")
-	//ip := net.ParseIP("8.8.8.8")
+	var ns string
+	ns = "192.168.65.7"
+	ns = "192.168.1.129"
+	//ns = "8.8.8.8"
+	ip := net.ParseIP(ns)
 
-	dns, e := NewDnsClient(ip, 53, 4)
+	dns, e := NewDnsClient(ip, 53, 6)
 	dns.Id = 1337
 	if e != nil {
 		t.Fatalf("Error creating client: %v", e)
@@ -47,8 +49,9 @@ func TestDnsLookup(t *testing.T) {
 	}
 	defer dns.Close()
 
-	//_, sent, e = dns.Send("ka1.homenet.ld")
-	e = dns.Send("google.com")
+	//e = dns.Send("ka1.homenet.ld")
+	//e = dns.Send("google.com")
+	e = dns.Send("yahoo.com")
 
 	if e = dns.SetTimeout(2); e != nil {
 		t.Fatalf("Failed to force our timeout!")
@@ -115,6 +118,28 @@ func TestParseName(t *testing.T) {
 	}
 	if res != "j.ex.com" {
 		t.Fatalf("Expected: [j.ex.com], got: %s", res)
+	}
+
+	t.Logf("Starting empty string test")
+
+	src = []byte{0}
+	res, pos, err = ParseName(src, 0)
+	if err != nil {
+		t.Fatalf("Something went wrong, got error: %v", err)
+		return
+	}
+	if pos != len(src) {
+		t.Fatalf("Expected pos of: %d, got %d", len(src), pos)
+		return
+	}
+	if res != "" {
+		t.Fatalf("Expected: [], got: [%s]", res)
+	}
+	src = []byte{}
+
+	res, pos, err = ParseName(src, 0)
+	if err == nil {
+		t.Fatalf("Failed to parse section correctly, should get an error")
 	}
 
 }
