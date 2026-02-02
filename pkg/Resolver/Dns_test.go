@@ -10,10 +10,8 @@ func TestPack(t *testing.T) {
 	for _, test := range []string{"google.com", "x.x.x.x", "a.b.c"} {
 
 		t.Logf("Working with fqdn: %s", test)
-		dns := &Dns{
-			Request: &DnsRequest{},
-		}
-		bytes, _, e := dns.PackFqdnToIp(test)
+		dns := &Dns{}
+		bytes, _, e := dns.PackFqdnToIp(test, 1, 1)
 
 		if e != nil {
 			t.Fatalf("Should not have gotten an error, got %v", e)
@@ -42,36 +40,50 @@ func TestDnsLookup(t *testing.T) {
 	ip := net.ParseIP(ns)
 
 	dns, e := NewDnsClient(ip, 53, 6)
-	dns.Id = 1337
+	var id uint16 = 1337
+	dns.Id = id
 	if e != nil {
 		t.Fatalf("Error creating client: %v", e)
 		return
 	}
 	defer dns.Close()
 
-	//e = dns.Send("ka1.homenet.ld")
-	//e = dns.Send("google.com")
-	e = dns.Send("yahoo.com")
+	var lookup string
+	lookup = "ka1.homenet.ld"
+	lookup = "yahoo.com"
+	lookup = "google.com"
+	payload, e := dns.Send(lookup)
 
+	str := hex.Dump(payload)
+	t.Logf("Sent: \n%s", str)
 	if e = dns.SetTimeout(2); e != nil {
 		t.Fatalf("Failed to force our timeout!")
 		return
 	}
 
-	e = dns.Recv()
+	payload, e = dns.Recv()
 	if e != nil {
 		t.Fatalf("Network issue: %e", e)
 		return
 	}
-	t.Logf("Sent: \n%s", hex.Dump(dns.Request.Request))
 
-	_, e = dns.Request.Parse()
+	res, e := dns.Parse(payload)
 	//str := hex.Dump(payload[len(sent):])
-	str := hex.Dump(dns.Request.Response)
+	str = hex.Dump(payload)
 	t.Logf("Got: \n%s", str)
 	if e != nil {
 		t.Fatalf("Expected no error and got: %v", e)
 		return
+	}
+	if res.Id != id {
+		t.Fatalf("Expected id: %d, got: %d", id, res.Id)
+	}
+
+	if res.Type != dns.Type {
+		t.Fatalf("Expected Type: %d, got %d", dns.Type, res.Type)
+	}
+	if res.Class != dns.Class {
+		t.Fatalf("Expected Type: %d, got %d", dns.Class, res.Class)
 	}
 
 }

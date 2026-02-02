@@ -2,54 +2,82 @@ package resolver
 
 import (
 	"encoding/binary"
+	"fmt"
 	"strings"
 )
+
+var ERR_FORMAT_ERROR = fmt.Errorf("Request format error, Code: 1")
+var ERR_SERVER_FAILURE = fmt.Errorf("Server Error, Code: 2")
+var ERR_NAME_ERROR = fmt.Errorf("Name Error, Code: 3")
+var ERR_NOT_IMPLEMENTED = fmt.Errorf("Not Implemented, Code: 4")
+var ERR_REFUSED = fmt.Errorf("Request was refused by the server, Code: 5")
 
 type DnsRequest struct {
 	Id            uint16
 	RequestOffset int
 	Response      []byte
-	Request       []byte
 	Type          uint16
 	Class         uint16
 	Lookup        string
+	Fields        *ParsedFeilds
 }
 
-func (s *DnsRequest) Parse() (fields *ParsedFeilds, e error) {
-
-	buffer := s.Response
+func (s *DnsRequest) Parse(buffer []byte) (e error) {
 	code := binary.BigEndian.Uint16(buffer[2:4])
+	s.Response = buffer
 	if 0x8000&code != 0x8000 {
 		e = ERR_NO_DATA
 		return
 	}
-	if code&0xf != 0 {
-		e = ERR_LOOKUP_ERROR
+	if msg := code & 0xf; msg != 0 {
+		switch msg {
+		case 1:
+			e = ERR_FORMAT_ERROR
+		case 2:
+			e = ERR_SERVER_FAILURE
+		case 3:
+			e = ERR_NAME_ERROR
+		case 4:
+			e = ERR_NOT_IMPLEMENTED
+		case 5:
+			e = ERR_REFUSED
+		default:
+			e = fmt.Errorf("Unknown error, Code; %d", msg)
+		}
 		return
 	}
-	a := binary.BigEndian.Uint16(buffer[0:2])
-	if a != s.Id {
-		e = ERR_ID_MISSMATCH
-		return
-	}
-	answers := binary.BigEndian.Uint16(buffer[6:8])
-	var ta uint16 = 0
-	size := len(buffer)
-	offset := s.RequestOffset
-	//nscount := binary.BigEndian.Uint16(buffer[8:10])
-	//arcount := binary.BigEndian.Uint16(buffer[10:12])
-	if answers == 0 {
-		e = ERR_NO_DATA
+	s.Id = binary.BigEndian.Uint16(buffer[0:2])
+	if res, pos, err := ParseName(buffer, 12); err == nil {
+		s.Lookup = res
+		s.RequestOffset = pos
+	} else {
+		e = err
 		return
 	}
 
-	frame, pos, err := ParseFrame(buffer, offset)
+	answers := binary.BigEndian.Uint16(buffer[6:8])
+	var ta uint16 = 0
+	size := len(buffer)
+	nscount := binary.BigEndian.Uint16(buffer[8:10])
+	arcount := binary.BigEndian.Uint16(buffer[10:12])
+	if answers+nscount+arcount == 0 {
+		e = ERR_NO_DATA
+		fmt.Printf("No answers\n")
+		return
+	}
+
+	s.Type = binary.BigEndian.Uint16(buffer[s.RequestOffset:])
+	s.RequestOffset += 2
+	s.Class = binary.BigEndian.Uint16(buffer[s.RequestOffset:])
+	s.RequestOffset += 2
+
+	frame, pos, err := ParseFrame(buffer, s.RequestOffset)
 	if err != nil {
 		e = err
 		return
 	}
 	ta++
-	fields = &ParsedFeilds{
+	fields := &ParsedFeilds{
 		Name: s.Lookup,
 	}
 	fields.ConsumeFrame(frame)
@@ -63,7 +91,6 @@ func (s *DnsRequest) Parse() (fields *ParsedFeilds, e error) {
 
 		ta++
 	}
-
 	return
 }
 

@@ -90,6 +90,7 @@ func init() {
 	// set RD field to true!
 	// TURN THIS BACK ON WHEN DONE TESTING!
 	binary.BigEndian.PutUint16(baseRequest[2:], 0x0100)
+
 	// always set request count to 1!
 	binary.BigEndian.PutUint16(baseRequest[4:], 0x0001)
 	ednsoPayload = []byte{
@@ -120,9 +121,9 @@ type Dns struct {
 	Id      uint16
 	IpPref  *byte
 	EDNS0   bool
-	Request *DnsRequest
 	Class   uint16
 	Type    uint16
+	pending map[int16]func(net.IP, error)
 }
 
 func NewDnsClient(ip net.IP, port int, IpPref byte) (client *Dns, e error) {
@@ -178,27 +179,12 @@ func (s *Dns) Close() {
 	syscall.Close(s.Fd)
 }
 
-func (s *Dns) Send(name string) (e error) {
-	id := s.Id
-	pref := *s.IpPref
+func (s *Dns) Send(name string) (payload []byte, e error) {
 
-	var offset int
-	var payload []byte
-	s.Request = &DnsRequest{
-		Id:     id,
-		Class:  s.Class,
-		Type:   s.Type,
-		Lookup: strings.ToLower(name),
-	}
-	if pref != 0 && pref != 6 {
-		s.Request.Type = QTYPE_AA
-	}
-	payload, offset, e = s.PackFqdnToIp(name)
+	payload, _, e = s.PackFqdnToIp(name, s.Type, s.Class)
 	if e != nil {
 		return
 	}
-	s.Request.Request = payload
-	s.Request.RequestOffset = offset
 	s.Id++
 	e = syscall.Sendto(s.Fd, payload, 0, s.Dst)
 
@@ -213,9 +199,18 @@ func (s *Dns) SetTimeout(seconds int) error {
 	return syscall.SetsockoptTimeval(s.Fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv)
 }
 
-func (s *Dns) Recv() (e error) {
-	payload := make([]byte, 0xffff)
+func (s *Dns) Parse(buffer []byte) (response *DnsRequest, e error) {
+
+	response = &DnsRequest{}
+	e = response.Parse(buffer)
+
+	return
+}
+
+func (s *Dns) Recv() (payload []byte, e error) {
+	payload = make([]byte, 0xffff)
 	n, _, e := syscall.Recvfrom(s.Fd, payload, 0)
+	payload = payload[0:n]
 	if e != nil {
 		if e == syscall.EAGAIN || e == syscall.EWOULDBLOCK {
 			e = nil
@@ -228,16 +223,12 @@ func (s *Dns) Recv() (e error) {
 		e = ERR_NO_DATA
 		return
 	}
-	s.Request.Response = payload[0:n]
+
 	return
 }
 
-func (s *Dns) PackFqdnToIp(fqdn string) (packed []byte, size int, e error) {
+func (s *Dns) PackFqdnToIp(fqdn string, Type, Class uint16) (packed []byte, size int, e error) {
 
-	if s.Request == nil {
-		e = ERR_NO_DATA
-		return
-	}
 	size = len(fqdn) + BASE_DNS_PACKET_SIZE
 	if size == 18 {
 		e = fmt.Errorf("String is 0 bytes long")
@@ -270,9 +261,9 @@ func (s *Dns) PackFqdnToIp(fqdn string) (packed []byte, size int, e error) {
 	packed[offset] = 0
 	offset += 1
 
-	binary.BigEndian.PutUint16(packed[offset:], s.Request.Type)
+	binary.BigEndian.PutUint16(packed[offset:], Type)
 	offset += 2
-	binary.BigEndian.PutUint16(packed[offset:], s.Request.Class)
+	binary.BigEndian.PutUint16(packed[offset:], Class)
 	packed = s.Ednso(packed)
 	return
 }
