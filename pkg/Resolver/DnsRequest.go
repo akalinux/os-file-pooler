@@ -23,6 +23,9 @@ type DnsRequest struct {
 }
 
 func (s *DnsRequest) Parse(buffer []byte) (e error) {
+	if len(buffer) < 12 {
+		return ERR_PACKET_OUT_OF_BOUNDS
+	}
 	code := binary.BigEndian.Uint16(buffer[2:4])
 	s.Response = buffer
 	if 0x8000&code != 0x8000 {

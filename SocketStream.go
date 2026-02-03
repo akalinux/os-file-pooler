@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 	"syscall"
 )
 
@@ -36,8 +35,8 @@ type SokcetHandlers struct {
 	Port   int
 }
 
-func ResolveAddr(addr string, port int, stream bool) (dst syscall.Sockaddr, Type int, Addr net.Addr, e error) {
-	if strings.HasPrefix(addr, "unix:") {
+func ResolveAddr(addr string, port int, proto string) (dst syscall.Sockaddr, Type int, Addr net.Addr, e error) {
+	if proto == "unix" {
 		path := addr[5:]
 		Type = syscall.AF_UNIX
 		dst = &syscall.SockaddrUnix{
@@ -56,7 +55,7 @@ func ResolveAddr(addr string, port int, stream bool) (dst syscall.Sockaddr, Type
 				Addr: [16]byte(res),
 			}
 			Type = syscall.AF_INET6
-			if stream {
+			if proto == "tcp" {
 				Addr = &net.TCPAddr{IP: ip, Port: port, Zone: ""}
 			} else {
 				Addr = &net.UDPAddr{IP: ip, Port: port, Zone: ""}
@@ -67,7 +66,7 @@ func ResolveAddr(addr string, port int, stream bool) (dst syscall.Sockaddr, Type
 				Addr: [4]byte(res),
 			}
 			Type = syscall.AF_INET
-			if stream {
+			if "tcp" == proto {
 				Addr = &net.TCPAddr{IP: ip, Port: port}
 			} else {
 				Addr = &net.UDPAddr{IP: ip, Port: port}
@@ -79,18 +78,20 @@ func ResolveAddr(addr string, port int, stream bool) (dst syscall.Sockaddr, Type
 	return
 }
 
-func NewSocketStreamJob(sh SokcetHandlers, stream bool) (job *SockeStreamtJob, e error) {
+func NewSocketStreamJob(sh SokcetHandlers, proto string) (job *SockeStreamtJob, e error) {
 	var fd int
 	var dst syscall.Sockaddr
 	var Type int
 	var Addr net.Addr
-	dst, Type, Addr, e = ResolveAddr(sh.Addr, sh.Port, stream)
+	dst, Type, Addr, e = ResolveAddr(sh.Addr, sh.Port, proto)
 	if e != nil {
 		return
 	}
 
 	var CType int
-	if stream {
+	var stream bool
+	if proto == "tcp" || proto == "unix" {
+		stream = true
 		CType = syscall.SOCK_STREAM
 	} else {
 		CType = syscall.SOCK_DGRAM
@@ -99,7 +100,12 @@ func NewSocketStreamJob(sh SokcetHandlers, stream bool) (job *SockeStreamtJob, e
 	if e != nil {
 		return
 	}
-	e = syscall.Connect(fd, dst)
+	if stream {
+		e = syscall.Connect(fd, dst)
+		if e != nil {
+			return
+		}
+	}
 	if e != nil && e != syscall.EINPROGRESS {
 		syscall.Close(fd)
 		return
