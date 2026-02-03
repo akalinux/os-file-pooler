@@ -3,6 +3,7 @@ package osfp
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"syscall"
 )
@@ -10,12 +11,14 @@ import (
 type SockeStreamtJob struct {
 	*CallBackJob
 	*SokcetHandlers
-	Conn net.Conn
+	conn net.Conn
+	file *os.File
 }
 
 type StreamEvent struct {
-	*CallbackEvent
+	AsyncEvent
 	Conn net.Conn
+	File *os.File
 }
 
 type SokcetHandlers struct {
@@ -26,14 +29,14 @@ type SokcetHandlers struct {
 	OnConnect    func(*StreamEvent)
 
 	// These options are used at the time of job creation, but not at runtime
-	// CAN_READ or CAN_WRITE or CAN_RW
-	Wanted  uint32
-	Addr    string
-	Port    int
 	Timeout int64
+	// CAN_READ or CAN_WRITE or CAN_RW
+	Wanted uint32
+	Addr   string
+	Port   int
 }
 
-func ResolveAddr(addr string, port int) (dst syscall.Sockaddr, Type int, Addr net.Addr, e error) {
+func ResolveAddr(addr string, port int, stream bool) (dst syscall.Sockaddr, Type int, Addr net.Addr, e error) {
 	if strings.HasPrefix(addr, "unix:") {
 		path := addr[5:]
 		Type = syscall.AF_UNIX
@@ -53,14 +56,22 @@ func ResolveAddr(addr string, port int) (dst syscall.Sockaddr, Type int, Addr ne
 				Addr: [16]byte(res),
 			}
 			Type = syscall.AF_INET6
-			Addr = &net.TCPAddr{IP: ip, Port: port, Zone: ""}
+			if stream {
+				Addr = &net.TCPAddr{IP: ip, Port: port, Zone: ""}
+			} else {
+				Addr = &net.UDPAddr{IP: ip, Port: port, Zone: ""}
+			}
 		} else if res := ip.To4(); res != nil {
 			dst = &syscall.SockaddrInet4{
 				Port: port,
 				Addr: [4]byte(res),
 			}
 			Type = syscall.AF_INET
-			Addr = &net.TCPAddr{IP: ip, Port: port}
+			if stream {
+				Addr = &net.TCPAddr{IP: ip, Port: port}
+			} else {
+				Addr = &net.UDPAddr{IP: ip, Port: port}
+			}
 		} else {
 			e = fmt.Errorf("Could not convert [%s] to ipv4 or ip6 address", addr)
 		}
@@ -68,17 +79,23 @@ func ResolveAddr(addr string, port int) (dst syscall.Sockaddr, Type int, Addr ne
 	return
 }
 
-func NewSocketStreamJob(sh SokcetHandlers) (job *SockeStreamtJob, e error) {
+func NewSocketStreamJob(sh SokcetHandlers, stream bool) (job *SockeStreamtJob, e error) {
 	var fd int
 	var dst syscall.Sockaddr
 	var Type int
 	var Addr net.Addr
-	dst, Type, Addr, e = ResolveAddr(sh.Addr, sh.Port)
+	dst, Type, Addr, e = ResolveAddr(sh.Addr, sh.Port, stream)
 	if e != nil {
 		return
 	}
 
-	fd, e = syscall.Socket(Type, syscall.SOCK_STREAM, 0)
+	var CType int
+	if stream {
+		CType = syscall.SOCK_STREAM
+	} else {
+		CType = syscall.SOCK_DGRAM
+	}
+	fd, e = syscall.Socket(Type, CType, 0)
 	if e != nil {
 		return
 	}

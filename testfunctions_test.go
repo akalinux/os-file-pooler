@@ -43,7 +43,7 @@ func createLocalWorker() *Worker {
 	return w
 }
 
-func createRJob(cb func(config *CallbackEvent)) (job Job, r *os.File, w *os.File) {
+func createRJob(cb func(config AsyncEvent)) (job Job, r *os.File, w *os.File) {
 	var e error
 	r, w, e = os.Pipe()
 	if e != nil {
@@ -53,7 +53,7 @@ func createRJob(cb func(config *CallbackEvent)) (job Job, r *os.File, w *os.File
 	return
 }
 
-func createWJob(cb func(config *CallbackEvent)) (job Job, r *os.File, w *os.File) {
+func createWJob(cb func(config AsyncEvent)) (job Job, r *os.File, w *os.File) {
 	var e error
 	r, w, e = os.Pipe()
 	if e != nil {

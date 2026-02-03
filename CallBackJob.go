@@ -11,7 +11,7 @@ var ERR_CALLBACK_PANIC = errors.New("Callback Panic")
 type CallBackJob struct {
 	Timeout         int64
 	Events          uint32
-	OnEventCallBack func(event *CallbackEvent)
+	OnEventCallBack func(event AsyncEvent)
 	worker          *Worker
 	FdId            int32
 	Lock            sync.RWMutex
@@ -19,7 +19,7 @@ type CallBackJob struct {
 	internalJobId   int64
 }
 
-func NewJobFromFdT(fd int32, watchEvents uint32, timeout int64, cb func(*CallbackEvent)) (job *CallBackJob) {
+func NewJobFromFdT(fd int32, watchEvents uint32, timeout int64, cb func(AsyncEvent)) (job *CallBackJob) {
 	job = &CallBackJob{
 		OnEventCallBack: cb,
 		Timeout:         timeout,
@@ -30,10 +30,10 @@ func NewJobFromFdT(fd int32, watchEvents uint32, timeout int64, cb func(*Callbac
 	return
 }
 
-func NewJobFromOsFileT(f *os.File, watchEvents uint32, timeout int64, cb func(*CallbackEvent)) *CallBackJob {
+func NewJobFromOsFileT(f *os.File, watchEvents uint32, timeout int64, cb func(AsyncEvent)) *CallBackJob {
 	return NewJobFromFdT(int32(f.Fd()), watchEvents, timeout, cb)
 }
-func NewJobTimeout(timeout int64, cb func(*CallbackEvent)) *CallBackJob {
+func NewJobTimeout(timeout int64, cb func(AsyncEvent)) *CallBackJob {
 	return NewJobFromFdT(int32(-1), CAN_END, timeout, cb)
 }
 
@@ -190,7 +190,7 @@ func (s *CallBackJob) UnsafeRelease() error {
 	return nil
 }
 
-func (s *CallBackJob) GetSettings() (fd int32, events uint32, timeout int64, cb func(*CallbackEvent)) {
+func (s *CallBackJob) GetSettings() (fd int32, events uint32, timeout int64, cb func(AsyncEvent)) {
 	s.Lock.RLock()
 	defer s.Lock.RUnlock()
 	fd = s.FdId
@@ -200,7 +200,7 @@ func (s *CallBackJob) GetSettings() (fd int32, events uint32, timeout int64, cb 
 	return
 }
 
-func (s *CallBackJob) SetCallback(cb func(*CallbackEvent)) {
+func (s *CallBackJob) SetCallback(cb func(AsyncEvent)) {
 	s.Lock.Lock()
 	defer s.Lock.Unlock()
 	s.OnEventCallBack = cb

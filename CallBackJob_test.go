@@ -4,7 +4,7 @@ import "testing"
 
 func TestCallBackPanic(t *testing.T) {
 	job := &CallBackJob{
-		OnEventCallBack: func(config *CallbackEvent) {
+		OnEventCallBack: func(config AsyncEvent) {
 			t.Logf("Getting called")
 			if config.Error() == nil {
 				panic("Should catch this!")
@@ -21,5 +21,5 @@ func TestCallBackPanic(t *testing.T) {
 }
 
 func TestNewJobTimeout(t *testing.T) {
-	NewJobTimeout(0, func(ce *CallbackEvent) {})
+	NewJobTimeout(0, func(ce AsyncEvent) {})
 }

@@ -127,7 +127,7 @@ func TestClearJob(t *testing.T) {
 	w.w.Close()
 	var e error
 	defer w.WorkerCleanup()
-	w.Job.OnEventCallBack = func(c *CallbackEvent) {
+	w.Job.OnEventCallBack = func(c AsyncEvent) {
 		e = c.Error()
 	}
 	w.singleLoop(t)
@@ -146,10 +146,10 @@ func TestWorkerJobRead(t *testing.T) {
 	defer w.WorkerCleanup()
 	defer cancel()
 	stop := false
-	w.Job.OnEventCallBack = func(config *CallbackEvent) {
+	w.Job.OnEventCallBack = func(config AsyncEvent) {
 		if config.InError() {
 			stop = true
-			t.Logf("Got the following error: %v", config.error)
+			t.Logf("Got the following error: %v", config.Error())
 			stop = true
 			return
 		}
@@ -218,7 +218,7 @@ func TestWorkerUpdateTimeout(t *testing.T) {
 	var diff int64 = 0
 	now := time.Now().UnixMilli()
 	var e error
-	w.Job.OnEventCallBack = func(config *CallbackEvent) {
+	w.Job.OnEventCallBack = func(config AsyncEvent) {
 		if timeout = config.InTimeout(); timeout {
 			e = config.Error()
 			diff = time.Now().UnixMilli() - now
@@ -261,7 +261,7 @@ func TestAddFdTimeout(t *testing.T) {
 	now := time.Now().UnixMilli()
 	var e error
 	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-	job.OnEventCallBack = func(config *CallbackEvent) {
+	job.OnEventCallBack = func(config AsyncEvent) {
 		if timeout = config.InTimeout(); timeout {
 			diff = time.Now().UnixMilli() - now
 			t.Log("Timeout Check completed")
@@ -334,7 +334,7 @@ func TestMultipleFdTimeouts(t *testing.T) {
 		cmp = limit
 		count := 0
 		id := i
-		jobs[i].OnEventCallBack = func(e *CallbackEvent) {
+		jobs[i].OnEventCallBack = func(e AsyncEvent) {
 			count++
 			t.Logf("** Job %d, called: %d", id, count)
 			t.Logf("Config: %v\n", e)
@@ -392,7 +392,7 @@ func TestTimeout(t *testing.T) {
 	var ok bool = false
 	job := &CallBackJob{
 		Timeout: 2,
-		OnEventCallBack: func(c *CallbackEvent) {
+		OnEventCallBack: func(c AsyncEvent) {
 			if ok = c.InTimeout(); ok {
 				ts = time.Now().UnixMilli()
 				e = c.Error()
@@ -445,7 +445,7 @@ func TestWakeThenUpdateTimeout(t *testing.T) {
 
 	count := 0
 	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-	w.Job.OnEventCallBack = func(config *CallbackEvent) {
+	w.Job.OnEventCallBack = func(config AsyncEvent) {
 		t.Logf("In Callback")
 
 		if !config.InTimeout() {
@@ -478,7 +478,7 @@ func TestRelease(t *testing.T) {
 	w := spawnRJobAndWorker(t)
 	defer w.WorkerCleanup()
 
-	w.Job.OnEventCallBack = func(config *CallbackEvent) {
+	w.Job.OnEventCallBack = func(config AsyncEvent) {
 		config.Release()
 	}
 
@@ -504,7 +504,7 @@ func TestWrite(t *testing.T) {
 	var job Job
 	var r *os.File
 	var w *os.File
-	job, r, w = createWJob(func(config *CallbackEvent) {
+	job, r, w = createWJob(func(config AsyncEvent) {
 		t.Logf("On Callbaack pass: %d", count)
 		switch count {
 		case 0:
@@ -635,7 +635,7 @@ func TestUtilTimeout(t *testing.T) {
 	u := w.NewUtil()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	count := 0
-	_, e := u.SetTimeout(func(_ *CallbackEvent) { count++ }, 1)
+	_, e := u.SetTimeout(func(_ AsyncEvent) { count++ }, 1)
 	if e != nil {
 		t.Fatalf("Failed to spawn job")
 	}
@@ -663,7 +663,7 @@ func TestUtilInterval(t *testing.T) {
 
 	now := time.Now().UnixMilli()
 	count := 0
-	_, e := u.SetInterval(func(event *CallbackEvent) {
+	_, e := u.SetInterval(func(event AsyncEvent) {
 		count++
 
 		next := time.Now().UnixMilli()
@@ -796,7 +796,7 @@ func TestWritePollReader(t *testing.T) {
 	p := createLocalWorker()
 	canWrite := false
 	didTo := false
-	j, _, w := createRJob(func(config *CallbackEvent) {
+	j, _, w := createRJob(func(config AsyncEvent) {
 		didTo = config.InTimeout()
 		canWrite = config.IsWrite()
 	})
@@ -824,7 +824,7 @@ func TestValdiateJobClearOnTimeStampChange(t *testing.T) {
 	var r *os.File
 	var w *os.File
 	res := make([]byte, 0)
-	x, r, w := createRJob(func(config *CallbackEvent) {
+	x, r, w := createRJob(func(config AsyncEvent) {
 		if config.IsRead() {
 			buff := make([]byte, 1024)
 			n, _ := r.Read(buff)
@@ -853,7 +853,7 @@ func TestValdiateJobClearOnTimeStampChange(t *testing.T) {
 	ran := false
 
 	t.Logf("Adding timeout job")
-	job, e := u.SetTimeout(func(_ *CallbackEvent) {
+	job, e := u.SetTimeout(func(_ AsyncEvent) {
 		t.Logf("Timer woke up")
 		w.Write([]byte(" World!"))
 		ran = true
@@ -903,9 +903,9 @@ func TestUpdateTimeoutOnly(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 1*time.Second)
 	done := make(chan any, 1)
-	job, e = u.SetInterval(func(event *CallbackEvent) {
+	job, e = u.SetInterval(func(event AsyncEvent) {
 		count++
-		e = event.error
+		e = event.Error()
 		t.Logf("On Count; %d, error was: %v", count, e)
 		if count == 2 {
 			done <- nil
@@ -988,8 +988,8 @@ func TestUnixCron(t *testing.T) {
 	u := p.NewUtil()
 	count := 0
 	var e error
-	job, e := u.SetCron(func(event *CallbackEvent) {
-		e = event.error
+	job, e := u.SetCron(func(event AsyncEvent) {
+		e = event.Error()
 		t.Logf("Callback ran, error was: %v", e)
 		count++
 	}, cron)
@@ -1020,7 +1020,7 @@ func TestUnixCron(t *testing.T) {
 		t.Fatalf("Should have gotten a shutdown error: %v, count: %d", e, count)
 	}
 
-	_, e = u.SetCron(func(event *CallbackEvent) {}, "Bad Cron job")
+	_, e = u.SetCron(func(event AsyncEvent) {}, "Bad Cron job")
 	if e == nil {
 		t.Fatalf("Should fail to parse a bad cron string!")
 	}
@@ -1053,11 +1053,11 @@ func TestOpen2(t *testing.T) {
 	defer stdout.Close()
 
 	count := 0
-	_, e = u.WatchRead(func(ce *CallbackEvent) {
+	_, e = u.WatchRead(func(ce AsyncEvent) {
 		count++
 		t.Logf("Getting called: %d", count)
 		if ce.InError() {
-			e = ce.error
+			e = ce.Error()
 			t.Logf("Error Polling stdout: %v", e)
 		} else {
 
@@ -1124,12 +1124,12 @@ func TestOpen3(t *testing.T) {
 	defer job.closeFd()
 
 	count := 0
-	_, e = u.WatchRead(func(ce *CallbackEvent) {
+	_, e = u.WatchRead(func(ce AsyncEvent) {
 		count++
 		t.Logf("Stdout read pass: %d", count)
 		if ce.InError() {
 			if count < 3 {
-				e = ce.error
+				e = ce.Error()
 			}
 			t.Logf("Error Polling stdout: %v", ce.Error())
 
@@ -1146,10 +1146,10 @@ func TestOpen3(t *testing.T) {
 
 	ecount := 0
 
-	_, e = u.WatchRead(func(ce *CallbackEvent) {
+	_, e = u.WatchRead(func(ce AsyncEvent) {
 		ecount++
 		if ce.InError() {
-			e = ce.error
+			e = ce.Error()
 			t.Logf("Error Polling stdout: %v", e)
 		} else {
 

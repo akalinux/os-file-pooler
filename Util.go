@@ -21,10 +21,10 @@ type Util struct {
 
 // Creates a timer that runs once executing the cb function provided. The timeout value is in milliseconds. You can terminate the timeout,
 // by calling the *CallBackJob.Release() method.
-func (s *Util) SetTimeout(cb func(event *CallbackEvent), timeout int64) (*CallBackJob, error) {
+func (s *Util) SetTimeout(cb func(event AsyncEvent), timeout int64) (*CallBackJob, error) {
 	job := &CallBackJob{
 		FdId: -1,
-		OnEventCallBack: func(event *CallbackEvent) {
+		OnEventCallBack: func(event AsyncEvent) {
 			cb(event)
 		},
 		Timeout: timeout,
@@ -35,13 +35,13 @@ func (s *Util) SetTimeout(cb func(event *CallbackEvent), timeout int64) (*CallBa
 
 // Creates an timer that will continue to run at regular intervals until terminatedd.  The interval value is in milliseconds.  To terminate the
 // can either calling the *CallBackJob.Release() method or by calling the *CallbackEvent.Release() method.
-func (s *Util) SetInterval(cb func(event *CallbackEvent), interval int64) (*CallBackJob, error) {
+func (s *Util) SetInterval(cb func(event AsyncEvent), interval int64) (*CallBackJob, error) {
 
 	job := &CallBackJob{
 		FdId: -1,
-		OnEventCallBack: func(event *CallbackEvent) {
+		OnEventCallBack: func(event AsyncEvent) {
 			if event.InTimeout() {
-				event.SetTimeout(event.timeout)
+				event.SetTimeout(event.GetTimeout())
 			}
 			cb(event)
 		},
@@ -108,7 +108,7 @@ func (s *Util) Open3(cb func(*WaitPidEvent), name string, args ...string) (job *
 }
 
 // Spawns a job that runs the given callback at the set cron interval.  This callback runs in the shared event loop.
-func (s *Util) SetCron(cb func(event *CallbackEvent), cron string) (*CallBackJob, error) {
+func (s *Util) SetCron(cb func(event AsyncEvent), cron string) (*CallBackJob, error) {
 
 	expr, err := cronexpr.Parse(cron)
 	if err != nil {
@@ -120,7 +120,7 @@ func (s *Util) SetCron(cb func(event *CallbackEvent), cron string) (*CallBackJob
 	interval := next.UnixMilli() - now.UnixMilli()
 	job := &CallBackJob{
 		FdId: -1,
-		OnEventCallBack: func(event *CallbackEvent) {
+		OnEventCallBack: func(event AsyncEvent) {
 			now := event.GetNow()
 			next := expr.Next(now)
 			interval := next.UnixMilli() - now.UnixMilli()
@@ -136,7 +136,7 @@ func (s *Util) SetCron(cb func(event *CallbackEvent), cron string) (*CallBackJob
 }
 
 // Spawns a job that watches the given os file for read events.
-func (s *Util) WatchRead(cb func(*CallbackEvent), file *os.File, msTimeout int64) (job Job, err error) {
+func (s *Util) WatchRead(cb func(AsyncEvent), file *os.File, msTimeout int64) (job Job, err error) {
 	job = &CallBackJob{
 		Timeout:         msTimeout,
 		Events:          CAN_READ,

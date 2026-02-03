@@ -4,41 +4,71 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
+	"syscall"
 	"time"
 )
 
 var ERR_CANNOT_SET_DEADLINE_IN_THE_PAST = fmt.Errorf("Cannot set a deadline in the past")
+var ERR_CANNOT_BE_SET_OUTSIDE_OF_EVENT_LOOP = fmt.Errorf("Operation cannot be performed outside of an event loop")
 
 type AsyncConn struct {
-	File   *os.File
-	Job    *SockeStreamtJob
-	Local  net.Addr
-	Remote net.Addr
-	Err    error
+	Job     *SockeStreamtJob
+	Event   *StreamEvent
+	Local   net.Addr
+	Remote  net.Addr
+	Err     error
+	Lock    sync.RWMutex
+	In      []byte
+	Out     []byte
+	running bool
+	closed  bool
 }
 
-// Read reads data from the connection.
-// Read can be made to time out and return an error after a fixed
-// time limit; see SetDeadline and SetReadDeadline.
+// This mehtod never blocks, it simply returns the last chunk of data
+// in the internal buffer.
 func (s *AsyncConn) Read(b []byte) (n int, err error) {
-	s.Job.Lock.RLock()
-	defer s.Job.Lock.RUnlock()
+	s.Lock.Lock()
+	defer s.Lock.Unlock()
 	if s.Err != nil {
-		return -1, s.Err
+		err = s.Err
+		return
 	}
-	return s.File.Read(b)
+	size := len(s.In)
+	if size == 0 {
+		err = syscall.EAGAIN
+		return
+	}
+	limit := len(b)
+	if size > limit {
+		n = limit
+		copy(b, s.In[0:limit])
+		s.In = s.In[limit:]
+	} else {
+		n = size
+		copy(b, s.In[0:limit])
+	}
+	return
+}
+
+func (s *AsyncConn) ToggleRunning(running bool) {
+	s.Lock.Lock()
+	defer s.Lock.Unlock()
+	s.running = running
 }
 
 // Write writes data to the connection.
-// Write can be made to time out and return an error after a fixed
-// time limit; see SetDeadline and SetWriteDeadline.
 func (s *AsyncConn) Write(b []byte) (n int, err error) {
-	s.Job.Lock.RLock()
-	defer s.Job.Lock.RUnlock()
+	s.Lock.Lock()
+	defer s.Lock.Unlock()
 	if s.Err != nil {
-		return -1, s.Err
+		err = s.Err
+		return
 	}
-	return s.File.Write(b)
+	n = len(b)
+	s.Out = append(s.Out, b...)
+
+	return
 }
 
 // Close closes the connection.
@@ -46,10 +76,23 @@ func (s *AsyncConn) Write(b []byte) (n int, err error) {
 // Close may or may not block until any buffered data is sent;
 // for TCP connections see [*TCPConn.SetLinger].
 func (s *AsyncConn) Close() error {
-	s.Job.Release()
-	s.Job.Lock.Lock()
-	defer s.Job.Lock.Unlock()
-	return s.File.Close()
+	s.Lock.Lock()
+	defer s.Lock.Unlock()
+	if s.Err != nil {
+		return s.Err
+	}
+
+	if s.closed {
+		return os.ErrClosed
+	}
+	s.Err = os.ErrClosed
+	s.closed = true
+	if s.running {
+		s.Event.Release()
+	} else {
+		s.Job.Release()
+	}
+	return nil
 }
 
 // LocalAddr returns the local network address, if known.
@@ -59,8 +102,6 @@ func (s *AsyncConn) LocalAddr() net.Addr {
 
 // RemoteAddr returns the remote network address, if known.
 func (s *AsyncConn) RemoteAddr() net.Addr {
-	s.Job.Lock.RLock()
-	defer s.Job.Lock.RUnlock()
 	return s.Remote
 }
 
@@ -68,70 +109,54 @@ func (s *AsyncConn) RemoteAddr() net.Addr {
 // with the connection. It is equivalent to calling both
 // SetReadDeadline and SetWriteDeadline.
 //
-// A deadline is an absolute time after which I/O operations
-// fail instead of blocking. The deadline applies to all future
-// and pending I/O, not just the immediately following call to
-// Read or Write. After a deadline has been exceeded, the
-// connection can be refreshed by setting a deadline in the future.
+// # Notes
 //
-// If the deadline is exceeded a call to Read or Write or to other
-// I/O methods will return an error that wraps os.ErrDeadlineExceeded.
-// This can be tested using errors.Is(err, os.ErrDeadlineExceeded).
-// The error's Timeout method will return true, but note that there
-// are other possible errors for which the Timeout method will
-// return true even if the deadline has not been exceeded.
+// In this implementation both read and write timeouts are shared.
+// So calling SetReadDeadline or SetWriteDeadline is the same as
+// making a call to this method.
 //
-// An idle timeout can be implemented by repeatedly extending
-// the deadline after successful Read or Write calls.
-//
-// A zero value for t means I/O operations will not time out.
+// Setting a timeout in the past will trigger the following error
+//   - osfp.ERR_CANNOT_SET_DEADLINE_IN_THE_PAST
 func (s *AsyncConn) SetDeadline(t time.Time) (e error) {
-	s.Job.Lock.Lock()
-	defer s.Job.Lock.RUnlock()
+	s.Lock.RLock()
+	defer s.Lock.RUnlock()
 	if s.Err != nil {
 		e = s.Err
 		return
 	}
 
+	var timeout int64
 	if t.IsZero() {
-		s.Job.UnsafeSetTimeout(0)
+		timeout = 0
 	} else {
 		now := time.Now().UnixMilli()
 		diff := t.UnixMilli() - now
 		if diff < 0 {
 			e = ERR_CANNOT_SET_DEADLINE_IN_THE_PAST
 			s.Err = e
-			return
 		}
 		if diff == 0 {
 			// Internals do not support 0, wil have to wait 1 ms
-			s.Job.SetTimeout(1)
+			timeout = 1
 		} else {
-			s.Job.SetTimeout(diff)
+			timeout = diff
 		}
-
 	}
+	if s.running {
+		s.Event.SetTimeout(timeout)
+	} else {
+		s.Job.SetTimeout(timeout)
+	}
+
 	return
 }
 
-func (s *AsyncConn) GetError() error {
-	s.Job.Lock.RLock()
-	defer s.Job.Lock.RUnlock()
-	return s.Err
-}
-
-// SetReadDeadline sets the deadline for future Read calls
-// and any currently-blocked Read call.
-// A zero value for t means Read will not time out.
+// This is just a wrapper for SetDeadline.
 func (s *AsyncConn) SetReadDeadline(t time.Time) error {
 	return s.SetDeadline(t)
 }
 
-// SetWriteDeadline sets the deadline for future Write calls
-// and any currently-blocked Write call.
-// Even if write times out, it may return n > 0, indicating that
-// some of the data was successfully written.
-// A zero value for t means Write will not time out.
+// This is just a wrapper for SetDeadline.
 func (s *AsyncConn) SetWriteDeadline(t time.Time) error {
 	return s.SetDeadline(t)
 }

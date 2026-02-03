@@ -26,6 +26,10 @@ func (s *CallbackEvent) Error() error {
 	return s.error
 }
 
+func (s *CallbackEvent) SetError(e error) {
+	s.error = e
+}
+
 func (s *CallbackEvent) InError() bool {
 	return s.error != nil
 }
@@ -82,4 +86,8 @@ func (s *CallbackEvent) PollReadWrite() {
 // Returns the curren time
 func (s *CallbackEvent) GetNow() time.Time {
 	return s.now
+}
+
+func (s *CallbackEvent) GetTimeout() int64 {
+	return s.timeout
 }

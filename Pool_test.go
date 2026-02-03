@@ -17,7 +17,7 @@ func TestPool(t *testing.T) {
 	u := p.NewUtil()
 	count := 0
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	u.SetTimeout(func(event *CallbackEvent) {
+	u.SetTimeout(func(event AsyncEvent) {
 		count++
 		t.Logf("runtime completed, ending context")
 		cancel()

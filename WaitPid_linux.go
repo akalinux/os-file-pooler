@@ -25,23 +25,23 @@ func (s *Util) WaitPid(pid int, cb func(*WaitPidEvent)) (*WaitPidJob, error) {
 		CallBackJob: &CallBackJob{
 			FdId:   int32(pfd),
 			Events: CAN_READ,
-			OnEventCallBack: func(event *CallbackEvent) {
+			OnEventCallBack: func(event AsyncEvent) {
 
 				if pfd == -1 {
 					// we have been closed!
 					return
 				}
 				pe := &WaitPidEvent{
-					CallbackEvent: event,
-					Usage:         &unix.Rusage{},
-					Info:          &unix.Siginfo{},
+					AsyncEvent: event,
+					Usage:      &unix.Rusage{},
+					Info:       &unix.Siginfo{},
 				}
 				defer job.closeFd()
 				defer cb(pe)
 				if event.InError() {
 					return
 				}
-				event.error = unix.Waitid(unix.P_PIDFD, pfd, pe.Info, unix.WNOHANG|unix.WEXITED, pe.Usage)
+				event.SetError(unix.Waitid(unix.P_PIDFD, pfd, pe.Info, unix.WNOHANG|unix.WEXITED, pe.Usage))
 				pe.ExitCode = sec.GetExitCodeFromSigInfo(pe.Info)
 
 			},
