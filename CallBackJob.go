@@ -41,6 +41,10 @@ func NewJobTimeout(timeout int64, cb func(*CallbackEvent)) *CallBackJob {
 func (s *CallBackJob) SetTimeout(t int64) {
 	s.Lock.Lock()
 	defer s.Lock.Unlock()
+	s.UnsafeSetTimeout(t)
+}
+
+func (s *CallBackJob) UnsafeSetTimeout(t int64) {
 	if t == s.Timeout {
 		// nothing to see here.. move along
 		return
@@ -175,6 +179,9 @@ func (s *CallBackJob) SetEvents(events uint32) error {
 func (s *CallBackJob) Release() error {
 	s.Lock.Lock()
 	defer s.Lock.Unlock()
+	return s.UnsafeRelease()
+}
+func (s *CallBackJob) UnsafeRelease() error {
 	s.Events = CAN_END
 	s.Timeout = 0
 	if s.worker != nil {

@@ -33,6 +33,7 @@ func TestPack(t *testing.T) {
 }
 
 func TestDnsLookup(t *testing.T) {
+
 	var ns string
 	ns = "192.168.65.7"
 	ns = "192.168.1.129"
@@ -46,6 +47,10 @@ func TestDnsLookup(t *testing.T) {
 		t.Fatalf("Error creating client: %v", e)
 		return
 	}
+	e = dns.SetupSocket()
+	if e != nil {
+		t.Fatalf("Failed to setup udp connection, error was: %v", e)
+	}
 	defer dns.Close()
 
 	var lookup string
@@ -57,7 +62,7 @@ func TestDnsLookup(t *testing.T) {
 	str := hex.Dump(payload)
 	t.Logf("Sent: \n%s", str)
 	if e = dns.SetTimeout(2); e != nil {
-		t.Fatalf("Failed to force our timeout!")
+		t.Fatalf("Failed to force our timeout, error was: %v", e)
 		return
 	}
 
@@ -84,6 +89,10 @@ func TestDnsLookup(t *testing.T) {
 	}
 	if res.Class != dns.Class {
 		t.Fatalf("Expected Type: %d, got %d", dns.Class, res.Class)
+	}
+	if !res.Validate() {
+		t.Fatalf("Expected resolution to be true")
+
 	}
 
 }

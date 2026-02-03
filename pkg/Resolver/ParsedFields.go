@@ -14,6 +14,18 @@ type ParsedFeilds struct {
 	Name string
 }
 
+func (s *ParsedFeilds) Validate() bool {
+	return len(s.Ipv4)+len(s.Ipv6) > 0
+}
+
+func (s *ParsedFeilds) Ipv4Ok() bool {
+	return len(s.Ipv4) > 0
+}
+
+func (s *ParsedFeilds) Ipv6Ok() bool {
+	return len(s.Ipv6) > 0
+}
+
 func (s *ParsedFeilds) ConsumeFrame(frame *FrameRes) {
 	if frame.Class == 1 && (frame.Type == QTYPE_AA || frame.Type == QTYPE_AAAA) && strings.ToLower(frame.Name) == s.Name {
 

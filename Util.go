@@ -187,3 +187,8 @@ func ConnToFd(src net.Conn) (fd int32, err error) {
 	}
 
 }
+
+func (s *Util) SocketStreamJob(cb func(*CallbackEvent, SockeStreamtJob), addr string, port int, timeout int64) (job SockeStreamtJob, e error) {
+
+	return
+}

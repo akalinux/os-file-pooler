@@ -18,6 +18,7 @@ const CLASS_ANY uint16 = 0x00ff
 const EDNSO_SIZE = 1232
 const ENABLE_EDNSO = true
 
+var ERR_INVALID_QUERY_STRING = fmt.Errorf("Invalid Query String")
 var ERR_NO_DATA = fmt.Errorf("No data in response")
 var ERR_PACKET_OUT_OF_BOUNDS = fmt.Errorf("Error, oversized packet read")
 var ERR_LOOKUP_ERROR = fmt.Errorf("Dns lookup error")
@@ -116,14 +117,18 @@ func Id() uint16 {
 }
 
 type Dns struct {
-	Dst     syscall.Sockaddr
-	Fd      int
-	Id      uint16
-	IpPref  *byte
-	EDNS0   bool
-	Class   uint16
-	Type    uint16
-	pending map[int16]func(net.IP, error)
+	Dst        syscall.Sockaddr
+	Fd         int
+	Id         uint16
+	SocketType int
+	IpPref     *byte
+	EDNS0      bool
+	Class      uint16
+	Type       uint16
+	pending    map[int16]func(net.IP, error)
+	CheckNames bool
+	// if not 0, add search domains if there are not at least this many dots
+	Dots int
 }
 
 func NewDnsClient(ip net.IP, port int, IpPref byte) (client *Dns, e error) {
@@ -133,18 +138,6 @@ func NewDnsClient(ip net.IP, port int, IpPref byte) (client *Dns, e error) {
 	}
 	var dst syscall.Sockaddr
 	var Type int
-	var fd int
-	if IpPref != 4 && IpPref != 6 {
-		e = ERR_NO_IP_TYPE
-		return
-	}
-	var RType uint16
-	if IpPref == 4 {
-		RType = QTYPE_AA
-	} else {
-		RType = QTYPE_AAAA
-	}
-
 	if res := ip.To16(); res != nil {
 		dst = &syscall.SockaddrInet6{
 			Port: port,
@@ -158,28 +151,64 @@ func NewDnsClient(ip net.IP, port int, IpPref byte) (client *Dns, e error) {
 		}
 		Type = syscall.AF_INET
 	}
-	fd, e = syscall.Socket(Type, syscall.SOCK_DGRAM, 0)
-	if e != nil {
+	if IpPref != 4 && IpPref != 6 {
+		e = ERR_NO_IP_TYPE
 		return
+	}
+	var RType uint16
+	if IpPref == 4 {
+		RType = QTYPE_AA
+	} else {
+		RType = QTYPE_AAAA
 	}
 
 	client = &Dns{
-		Dst:    dst,
-		Fd:     fd,
-		IpPref: &IpPref,
-		EDNS0:  ENABLE_EDNSO,
-		Class:  CLASS_A,
-		Type:   RType,
+		Dst:        dst,
+		SocketType: Type,
+		IpPref:     &IpPref,
+		EDNS0:      ENABLE_EDNSO,
+		Class:      CLASS_A,
+		Type:       RType,
+		CheckNames: true,
 	}
 
 	return
 }
 
-func (s *Dns) Close() {
-	syscall.Close(s.Fd)
+func (s *Dns) SetupSocket() (e error) {
+	var fd int
+
+	fd, e = syscall.Socket(s.SocketType, syscall.SOCK_DGRAM, 0)
+	if e != nil {
+		return
+	}
+	s.Fd = fd
+	return
+}
+
+func (s *Dns) Close() error {
+	if s.Fd == 0 {
+		// was never opened
+		return nil
+	}
+	return syscall.Close(s.Fd)
 }
 
 func (s *Dns) Send(name string) (payload []byte, e error) {
+	if len(name) == 0 {
+		e = ERR_INVALID_QUERY_STRING
+		return
+	}
+
+	if s.CheckNames {
+		for _, c := range name {
+			if uint8(c) > 128 || string(c) == "_" {
+				e = ERR_INVALID_QUERY_STRING
+				return
+			}
+
+		}
+	}
 
 	payload, _, e = s.PackFqdnToIp(name, s.Type, s.Class)
 	if e != nil {

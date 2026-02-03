@@ -19,7 +19,7 @@ type DnsRequest struct {
 	Type          uint16
 	Class         uint16
 	Lookup        string
-	Fields        *ParsedFeilds
+	*ParsedFeilds
 }
 
 func (s *DnsRequest) Parse(buffer []byte) (e error) {
@@ -56,13 +56,12 @@ func (s *DnsRequest) Parse(buffer []byte) (e error) {
 	}
 
 	answers := binary.BigEndian.Uint16(buffer[6:8])
-	var ta uint16 = 0
 	size := len(buffer)
 	nscount := binary.BigEndian.Uint16(buffer[8:10])
 	arcount := binary.BigEndian.Uint16(buffer[10:12])
-	if answers+nscount+arcount == 0 {
+	total := answers + nscount + arcount
+	if total == 0 {
 		e = ERR_NO_DATA
-		fmt.Printf("No answers\n")
 		return
 	}
 
@@ -71,26 +70,30 @@ func (s *DnsRequest) Parse(buffer []byte) (e error) {
 	s.Class = binary.BigEndian.Uint16(buffer[s.RequestOffset:])
 	s.RequestOffset += 2
 
-	frame, pos, err := ParseFrame(buffer, s.RequestOffset)
-	if err != nil {
-		e = err
+	frame, pos, e := ParseFrame(buffer, s.RequestOffset)
+	if e != nil {
 		return
 	}
-	ta++
+	var ta uint16 = 1
 	fields := &ParsedFeilds{
 		Name: s.Lookup,
 	}
 	fields.ConsumeFrame(frame)
-	for pos < size && err == nil {
-		frame, pos, err = ParseFrame(buffer, pos)
+	for pos < size && e == nil && ta <= total {
+		frame, pos, e = ParseFrame(buffer, pos)
 
-		if err != nil {
-			break
+		if e != nil {
+			return
 		}
 		fields.ConsumeFrame(frame)
 
 		ta++
 	}
+	if ta != total {
+		e = ERR_PACKET_OUT_OF_BOUNDS
+		return
+	}
+	s.ParsedFeilds = fields
 	return
 }
 
