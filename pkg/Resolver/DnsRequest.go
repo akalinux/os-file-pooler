@@ -74,12 +74,12 @@ func (s *DnsRequest) Parse(buffer []byte) (e error) {
 	if e != nil {
 		return
 	}
-	var ta uint16 = 1
+	var tf uint16 = 1
 	fields := &ParsedFeilds{
 		Name: s.Lookup,
 	}
 	fields.ConsumeFrame(frame)
-	for pos < size && e == nil && ta <= total {
+	for pos < size && e == nil && tf < total {
 		frame, pos, e = ParseFrame(buffer, pos)
 
 		if e != nil {
@@ -87,9 +87,9 @@ func (s *DnsRequest) Parse(buffer []byte) (e error) {
 		}
 		fields.ConsumeFrame(frame)
 
-		ta++
+		tf++
 	}
-	if ta != total {
+	if tf != total {
 		e = ERR_PACKET_OUT_OF_BOUNDS
 		return
 	}
