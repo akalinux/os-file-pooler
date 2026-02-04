@@ -10,14 +10,7 @@ import (
 type SockeStreamtJob struct {
 	*CallBackJob
 	*SokcetHandlers
-	conn net.Conn
 	file *os.File
-}
-
-type StreamEvent struct {
-	AsyncEvent
-	Conn net.Conn
-	File *os.File
 }
 
 type SokcetHandlers struct {
@@ -37,12 +30,11 @@ type SokcetHandlers struct {
 
 func ResolveAddr(addr string, port int, proto string) (dst syscall.Sockaddr, Type int, Addr net.Addr, e error) {
 	if proto == "unix" {
-		path := addr[5:]
 		Type = syscall.AF_UNIX
 		dst = &syscall.SockaddrUnix{
-			Name: path,
+			Name: addr,
 		}
-		Addr = &net.UnixAddr{Name: path, Net: "unix"}
+		Addr = &net.UnixAddr{Name: addr, Net: proto}
 	} else {
 		ip := net.ParseIP(addr)
 		if ip == nil {
@@ -71,8 +63,6 @@ func ResolveAddr(addr string, port int, proto string) (dst syscall.Sockaddr, Typ
 			} else {
 				Addr = &net.UDPAddr{IP: ip, Port: port}
 			}
-		} else {
-			e = fmt.Errorf("Could not convert [%s] to ipv4 or ip6 address", addr)
 		}
 	}
 	return

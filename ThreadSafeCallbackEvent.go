@@ -7,89 +7,93 @@ import (
 
 type ThreadSafeCallbackEvent struct {
 	sync.RWMutex
-	*CallbackEvent
+	AsyncEvent
+}
+
+func NewThreadSafeEvent(e AsyncEvent) *ThreadSafeCallbackEvent {
+	return &ThreadSafeCallbackEvent{AsyncEvent: e}
 }
 
 func (s *ThreadSafeCallbackEvent) Error() error {
 	s.RLock()
 	defer s.RUnlock()
-	return s.CallbackEvent.Error()
+	return s.AsyncEvent.Error()
 }
 
 func (s *ThreadSafeCallbackEvent) InError() bool {
 	s.RLock()
 	defer s.RUnlock()
-	return s.CallbackEvent.InError()
+	return s.AsyncEvent.InError()
 }
 
 func (s *ThreadSafeCallbackEvent) InTimeout() bool {
 	s.RLock()
 	defer s.RUnlock()
-	return s.CallbackEvent.InTimeout()
+	return s.AsyncEvent.InTimeout()
 }
 
 func (s *ThreadSafeCallbackEvent) IsRead() bool {
 	s.RLock()
 	defer s.RUnlock()
-	return s.CallbackEvent.IsRead()
+	return s.AsyncEvent.IsRead()
 }
 
 func (s *ThreadSafeCallbackEvent) IsWrite() bool {
 	s.RLock()
 	defer s.RUnlock()
-	return s.CallbackEvent.IsWrite()
+	return s.AsyncEvent.IsWrite()
 }
 
 func (s *ThreadSafeCallbackEvent) IsRW() bool {
 	s.RLock()
 	defer s.RUnlock()
-	return s.CallbackEvent.IsRW()
+	return s.AsyncEvent.IsRW()
 }
 
 func (s *ThreadSafeCallbackEvent) GetTimeout() int64 {
 	s.Lock()
 	defer s.Unlock()
-	return s.CallbackEvent.GetTimeout()
+	return s.AsyncEvent.GetTimeout()
 }
 
 func (s *ThreadSafeCallbackEvent) GetNow() time.Time {
 	s.RLock()
 	defer s.RUnlock()
-	return s.CallbackEvent.GetNow()
+	return s.AsyncEvent.GetNow()
 }
 
 func (s *ThreadSafeCallbackEvent) SetTimeout(t int64) {
 	s.Lock()
 	defer s.Unlock()
-	s.CallbackEvent.SetTimeout(t)
+	s.AsyncEvent.SetTimeout(t)
 }
 
 func (s *ThreadSafeCallbackEvent) Release() {
 	s.Lock()
 	defer s.Unlock()
-	s.CallbackEvent.Release()
+	s.AsyncEvent.Release()
 }
 
 func (s *ThreadSafeCallbackEvent) PollRead() {
 	s.Lock()
 	defer s.Unlock()
-	s.CallbackEvent.PollRead()
+	s.AsyncEvent.PollRead()
 }
 
 func (s *ThreadSafeCallbackEvent) PollWrite() {
 	s.Lock()
 	defer s.Unlock()
-	s.CallbackEvent.PollWrite()
+	s.AsyncEvent.PollWrite()
 }
 
 func (s *ThreadSafeCallbackEvent) PollReadWrite() {
 	s.Lock()
 	defer s.Unlock()
-	s.CallbackEvent.PollReadWrite()
+	s.AsyncEvent.PollReadWrite()
 }
 
 func (s *ThreadSafeCallbackEvent) SetError(e error) {
 	s.Lock()
 	defer s.Unlock()
-	s.CallbackEvent.SetError(e)
+	s.AsyncEvent.SetError(e)
 }
