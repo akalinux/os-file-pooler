@@ -64,8 +64,11 @@ func (s *DnsRequest) Parse(buffer []byte) (e error) {
 	s.Id = binary.BigEndian.Uint16(buffer[0:2])
 
 	answers := binary.BigEndian.Uint16(buffer[6:8])
+	s.ACount = answers
 	nscount := binary.BigEndian.Uint16(buffer[8:10])
+	s.NsCount = nscount
 	arcount := binary.BigEndian.Uint16(buffer[10:12])
+	s.ArCount = arcount
 	total := answers + nscount + arcount
 	if total == 0 {
 		e = ERR_NO_DATA
