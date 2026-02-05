@@ -11,6 +11,7 @@ type SockeStreamtJob struct {
 	*CallBackJob
 	*SokcetHandlers
 	file *os.File
+	conn AsyncConn
 }
 
 type SokcetHandlers struct {
@@ -25,6 +26,7 @@ type SokcetHandlers struct {
 	// CAN_READ or CAN_WRITE or CAN_RW
 	Wanted uint32
 	Addr   string
+	Proto  string
 	Port   int
 }
 
@@ -47,9 +49,10 @@ func ResolveAddr(addr string, port int, proto string) (dst syscall.Sockaddr, Typ
 				Addr: [16]byte(res),
 			}
 			Type = syscall.AF_INET6
-			if proto == "tcp" {
+			switch proto {
+			case "tcp":
 				Addr = &net.TCPAddr{IP: ip, Port: port, Zone: ""}
-			} else {
+			case "udp":
 				Addr = &net.UDPAddr{IP: ip, Port: port, Zone: ""}
 			}
 		} else if res := ip.To4(); res != nil {
@@ -58,29 +61,35 @@ func ResolveAddr(addr string, port int, proto string) (dst syscall.Sockaddr, Typ
 				Addr: [4]byte(res),
 			}
 			Type = syscall.AF_INET
-			if "tcp" == proto {
+			switch proto {
+			case "tcp":
 				Addr = &net.TCPAddr{IP: ip, Port: port}
-			} else {
+			case "udp":
 				Addr = &net.UDPAddr{IP: ip, Port: port}
 			}
+		} else {
+			e = fmt.Errorf("Unable to parse ip: %s", addr)
 		}
+	}
+	if Addr == nil {
+		e = fmt.Errorf("Unable to resolve protocol from string: %s", proto)
 	}
 	return
 }
 
-func NewSocketStreamJob(sh SokcetHandlers, proto string) (job *SockeStreamtJob, e error) {
+func NewSocketStreamJob(sh SokcetHandlers) (job *SockeStreamtJob, e error) {
 	var fd int
 	var dst syscall.Sockaddr
 	var Type int
 	var Addr net.Addr
-	dst, Type, Addr, e = ResolveAddr(sh.Addr, sh.Port, proto)
+	dst, Type, Addr, e = ResolveAddr(sh.Addr, sh.Port, sh.Proto)
 	if e != nil {
 		return
 	}
 
 	var CType int
 	var stream bool
-	if proto == "tcp" || proto == "unix" {
+	if sh.Proto == "tcp" || sh.Proto == "unix" {
 		stream = true
 		CType = syscall.SOCK_STREAM
 	} else {
