@@ -12,6 +12,7 @@ type CallBackJob struct {
 	Timeout         int64
 	Events          uint32
 	OnEventCallBack func(event AsyncEvent)
+	WantStartup     bool
 	worker          *Worker
 	FdId            int32
 	Lock            sync.RWMutex
@@ -131,18 +132,31 @@ func (s *CallBackJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents uint
 }
 
 // Sets the current Worker. This method is called when a Job is added to a Worker in the pool.
-func (s *CallBackJob) SetPool(worker *Worker, now int64, jobId int64) (watchEevents uint32, futureTimeOut int64, fd int32) {
+func (s *CallBackJob) SetPool(worker *Worker, now int64, jobId int64) (watchEevents uint32, futureTimeOut int64, fd int32, e error) {
 	s.Lock.Lock()
 	defer s.Lock.Unlock()
 	s.internalJobId = jobId
 	s.ran = false
+
+	fd = s.FdId
+	s.worker = worker
+	if s.WantStartup {
+		event := &CallbackEvent{
+			timeout:       s.Timeout,
+			nextTs:        -1,
+			events:        s.Events,
+			currentEvents: 0,
+			now:           s.worker.now,
+		}
+
+		s.safeEvent(event)
+		e = event.Error()
+	}
+	watchEevents = s.Events
 	if s.Timeout != 0 {
 		futureTimeOut = now + s.Timeout
 
 	}
-	watchEevents = s.Events
-	fd = s.FdId
-	s.worker = worker
 
 	return
 }

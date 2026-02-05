@@ -10,8 +10,13 @@ import (
 type SockeStreamtJob struct {
 	*CallBackJob
 	*SokcetHandlers
-	file *os.File
-	conn AsyncConn
+	file      *os.File
+	conn      *AsyncConn
+	connected bool
+}
+
+func (s *SockeStreamtJob) OnEventCallBack(event AsyncEvent) {
+
 }
 
 type SokcetHandlers struct {
@@ -23,11 +28,10 @@ type SokcetHandlers struct {
 
 	// These options are used at the time of job creation, but not at runtime
 	Timeout int64
-	// CAN_READ or CAN_WRITE or CAN_RW
-	Wanted uint32
-	Addr   string
-	Proto  string
-	Port   int
+
+	Addr  string
+	Proto string
+	Port  int
 }
 
 func ResolveAddr(addr string, port int, proto string) (dst syscall.Sockaddr, Type int, Addr net.Addr, e error) {
@@ -89,11 +93,13 @@ func NewSocketStreamJob(sh SokcetHandlers) (job *SockeStreamtJob, e error) {
 
 	var CType int
 	var stream bool
+	connected := false
 	if sh.Proto == "tcp" || sh.Proto == "unix" {
 		stream = true
 		CType = syscall.SOCK_STREAM
 	} else {
 		CType = syscall.SOCK_DGRAM
+		connected = true
 	}
 	fd, e = syscall.Socket(Type, CType, 0)
 	if e != nil {
@@ -101,6 +107,7 @@ func NewSocketStreamJob(sh SokcetHandlers) (job *SockeStreamtJob, e error) {
 	}
 	if stream {
 		e = syscall.Connect(fd, dst)
+		syscall.Close((fd))
 		if e != nil {
 			return
 		}
@@ -114,8 +121,24 @@ func NewSocketStreamJob(sh SokcetHandlers) (job *SockeStreamtJob, e error) {
 		syscall.Close(fd)
 		return
 	}
-	if Addr != nil {
 
+	conn := &AsyncConn{
+		Remote: Addr,
+	}
+
+	file := os.NewFile(uintptr(fd), fmt.Sprintf("[%s]:%d %s", sh.Addr, sh.Port, sh.Proto))
+
+	job = &SockeStreamtJob{
+		SokcetHandlers: &sh,
+		conn:           conn,
+		file:           file,
+		connected:      connected,
+	}
+
+	job.CallBackJob = &CallBackJob{
+		Events:          CAN_READ,
+		FdId:            int32(fd),
+		OnEventCallBack: job.OnEventCallBack,
 	}
 
 	return

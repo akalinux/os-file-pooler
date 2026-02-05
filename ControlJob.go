@@ -36,9 +36,11 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 	}
 	for jobid := range configs {
 		if job, ok := worker.jobs[jobid]; ok {
-			events, t, fd := job.SetPool(worker, now, jobid)
-
-			if fd != -1 {
+			events, t, fd, e := job.SetPool(worker, now, jobid)
+			if e != nil {
+				worker.clearJob(job, e)
+				continue
+			} else if fd != -1 {
 				// events management
 				if events != job.wanted {
 					// need to remove from watchers no mater what
@@ -46,8 +48,8 @@ func (s *controlJob) ProcessEvents(currentEvents uint32, now int64) (watchEevent
 					if events == 0 {
 						// need to remove from our watcehrs
 						worker.clearJob(job, nil)
-						return
 					}
+					continue
 				}
 				worker.changeEvents(job, events)
 				worker.resetTimeout(job, t)
@@ -82,7 +84,10 @@ CTRL_LOOP:
 func (s *controlJob) AddJob(job Job, now int64) {
 	worker := s.worker
 
-	events, t, fd := job.SetPool(worker, now, worker.nextJobId())
+	events, t, fd, e := job.SetPool(worker, now, worker.nextJobId())
+	if e != nil {
+		job.ClearPool(e)
+	}
 	c := &wjc{
 		Job:    job,
 		nextTs: t,
@@ -125,7 +130,7 @@ func (s *controlJob) CheckTimeOut(now int64, lastTimeout int64) (NewEvents uint3
 }
 
 // Implemented only for interface compliance.
-func (s *controlJob) SetPool(worker *Worker, now int64, jobId int64) (watchEevents uint32, futureTimeOut int64, fd int32) {
+func (s *controlJob) SetPool(worker *Worker, now int64, jobId int64) (watchEevents uint32, futureTimeOut int64, fd int32, e error) {
 	s.worker = worker
 	s.jobId = jobId
 	watchEevents = CAN_READ

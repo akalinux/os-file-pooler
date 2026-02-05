@@ -41,7 +41,7 @@ type Job interface {
 
 	// Sets the current Worker. This method is called when a Job is added to a Worker in the pool.
 	// A timeout only based job is a job where the fd returned is -1.
-	SetPool(worker *Worker, now int64, jobid int64) (watchEevents uint32, futureTimeOut int64, fd int32)
+	SetPool(worker *Worker, now int64, jobid int64) (watchEevents uint32, futureTimeOut int64, fd int32, e error)
 
 	// This is called when Job is being removed from the pool.
 	// Make sure to remove the refernce of the current worker when implementing this method.

@@ -139,7 +139,7 @@ func NewWorker(que chan Job, throttle chan any, read *os.File, write *os.File, l
 
 	cg := newControlJob()
 	s.ctrl = cg
-	_, _, jfd := cg.SetPool(s, time.Now().UnixMilli(), -2)
+	_, _, jfd, _ := cg.SetPool(s, time.Now().UnixMilli(), -2)
 	e = unix.EpollCtl(epfd, unix.EPOLL_CTL_ADD, int(jfd), &unix.EpollEvent{Events: CAN_READ, Fd: jfd})
 	if e != nil {
 		// give up and close here
