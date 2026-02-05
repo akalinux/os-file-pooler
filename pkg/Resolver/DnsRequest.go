@@ -12,18 +12,30 @@ var ERR_NAME_ERROR = fmt.Errorf("Name Error, Code: 3")
 var ERR_NOT_IMPLEMENTED = fmt.Errorf("Not Implemented, Code: 4")
 var ERR_REFUSED = fmt.Errorf("Request was refused by the server, Code: 5")
 
+type Question struct {
+	Name  string
+	Type  uint16
+	Class uint16
+}
+
 type DnsRequest struct {
-	Id            uint16
-	RequestOffset int
-	Response      []byte
-	Type          uint16
-	Class         uint16
-	Lookup        string
+	Id        uint16
+	Response  []byte
+	Type      uint16
+	Class     uint16
+	Lookup    string
+	Questions []*Question
+	QCount    uint16
+	ACount    uint16
+	NsCount   uint16
+	ArCount   uint16
+	Responses []*FrameRes
 	*ParsedFeilds
 }
 
 func (s *DnsRequest) Parse(buffer []byte) (e error) {
-	if len(buffer) < 12 {
+	size := len(buffer)
+	if size < 12 {
 		return ERR_PACKET_OUT_OF_BOUNDS
 	}
 	code := binary.BigEndian.Uint16(buffer[2:4])
@@ -50,30 +62,52 @@ func (s *DnsRequest) Parse(buffer []byte) (e error) {
 		return
 	}
 	s.Id = binary.BigEndian.Uint16(buffer[0:2])
-	if res, pos, err := ParseName(buffer, 12); err == nil {
-		s.Lookup = res
-		s.RequestOffset = pos
-	} else {
-		e = err
-		return
-	}
 
 	answers := binary.BigEndian.Uint16(buffer[6:8])
-	size := len(buffer)
 	nscount := binary.BigEndian.Uint16(buffer[8:10])
 	arcount := binary.BigEndian.Uint16(buffer[10:12])
 	total := answers + nscount + arcount
 	if total == 0 {
 		e = ERR_NO_DATA
 		return
+
+	}
+	questions := binary.BigEndian.Uint16(buffer[4:6])
+
+	var pos int = 12
+	if questions != 0 {
+
+		var res string
+		s.Questions = make([]*Question, questions)
+		for i := range questions {
+			q := &Question{}
+
+			if res, pos, e = ParseName(buffer, pos); e == nil {
+				q.Name = res
+			} else {
+				return
+			}
+
+			if size >= pos+3 {
+				q.Type = binary.BigEndian.Uint16(buffer[pos:])
+				pos += 2
+				q.Class = binary.BigEndian.Uint16(buffer[pos:])
+				pos += 2
+			} else {
+				e = ERR_PACKET_OUT_OF_BOUNDS
+				return
+			}
+			if i == 0 {
+				s.Lookup = q.Name
+				s.Type = q.Type
+				s.Class = q.Class
+			}
+
+			s.Questions[i] = q
+		}
 	}
 
-	s.Type = binary.BigEndian.Uint16(buffer[s.RequestOffset:])
-	s.RequestOffset += 2
-	s.Class = binary.BigEndian.Uint16(buffer[s.RequestOffset:])
-	s.RequestOffset += 2
-
-	frame, pos, e := ParseFrame(buffer, s.RequestOffset)
+	frame, pos, e := ParseFrame(buffer, pos)
 	if e != nil {
 		return
 	}
@@ -81,13 +115,17 @@ func (s *DnsRequest) Parse(buffer []byte) (e error) {
 	fields := &ParsedFeilds{
 		Name: s.Lookup,
 	}
+	s.Responses = make([]*FrameRes, total)
+	s.Responses[0] = frame
 	fields.ConsumeFrame(frame)
-	for pos < size && e == nil && tf < total {
+
+	for pos < size && tf < total {
 		frame, pos, e = ParseFrame(buffer, pos)
 
 		if e != nil {
 			return
 		}
+		s.Responses[tf] = frame
 		fields.ConsumeFrame(frame)
 
 		tf++
